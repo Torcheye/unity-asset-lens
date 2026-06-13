@@ -184,11 +184,99 @@ export function groupByProduct(hits: readonly SearchHit[]): GroupedSearchResult[
   });
 }
 
-/** Convenience: search + group in one call. */
+/** Positional bm25 weights for `products_fts` (product-level metadata search). */
+export const DEFAULT_PRODUCT_WEIGHTS = {
+  productName: 6,
+  publisher: 2,
+  category: 3,
+  tags: 5,
+  description: 1,
+} as const;
+
+interface RawProductRow {
+  product_id: string;
+  product_name: string;
+  publisher: string;
+  source: Source;
+  coverage: Coverage;
+  store_url: string;
+  local_path: string | null;
+  score: number;
+}
+
+/**
+ * Product-level metadata search (spec §4, §7): finds owned products by
+ * name/keywords/category even when they have no indexed files yet. The
+ * type-bucket filter is inapplicable here (no files), so it is ignored.
+ */
+export function searchProducts(
+  db: DB,
+  query: string,
+  opts: SearchOptions = {},
+): GroupedSearchResult[] {
+  const match = buildMatchQuery(query);
+  if (!match) return [];
+
+  const w = DEFAULT_PRODUCT_WEIGHTS;
+  const boost = opts.localBoost ?? DEFAULT_LOCAL_BOOST;
+  const limit = Math.max(1, opts.limit ?? 200);
+  const bm25 = `bm25(products_fts, ${w.productName}, ${w.publisher}, ${w.category}, ${w.tags}, ${w.description})`;
+  const scoreExpr = `(${bm25} - CASE WHEN p.source = 'local' THEN ${boost} ELSE 0 END)`;
+
+  const filters: string[] = ["products_fts MATCH ?"];
+  const params: unknown[] = [match];
+  if (opts.localOnly) filters.push("p.source = 'local'");
+  if (opts.publisher) {
+    filters.push("p.publisher = ?");
+    params.push(opts.publisher);
+  }
+  params.push(limit);
+
+  const rows = db
+    .prepare(
+      `SELECT p.product_id, p.name AS product_name, p.publisher, p.source,
+              p.coverage, p.store_url, p.local_path, ${scoreExpr} AS score
+       FROM products_fts
+       JOIN products p ON p.product_id = products_fts.product_id
+       WHERE ${filters.join(" AND ")}
+       ORDER BY score ASC
+       LIMIT ?`,
+    )
+    .all(...params) as RawProductRow[];
+
+  return rows.map((r) => ({
+    productId: r.product_id,
+    productName: r.product_name,
+    publisher: r.publisher,
+    source: r.source,
+    coverage: r.coverage,
+    storeUrl: r.store_url,
+    ...(r.local_path ? { localPath: r.local_path } : {}),
+    bestScore: r.score,
+    totalHits: 0,
+    hits: [],
+  }));
+}
+
+/**
+ * Full search + group (spec §7): file-level hits grouped by product, plus
+ * product-level metadata hits for owned products that have no file match yet
+ * (e.g. not-downloaded wrappers). A type-bucket filter suppresses the
+ * product-level pass since it concerns files only.
+ */
 export function search(
   db: DB,
   query: string,
   opts?: SearchOptions,
 ): GroupedSearchResult[] {
-  return groupByProduct(searchFiles(db, query, opts));
+  const fileGroups = groupByProduct(searchFiles(db, query, opts));
+  if (opts?.typeBucket) return fileGroups;
+
+  const seen = new Set(fileGroups.map((g) => g.productId));
+  const productOnly = searchProducts(db, query, opts).filter(
+    (g) => !seen.has(g.productId),
+  );
+
+  // Merge and order best-first across both kinds of hit.
+  return [...fileGroups, ...productOnly].sort((a, b) => a.bestScore - b.bestScore);
 }

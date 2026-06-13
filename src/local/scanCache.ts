@@ -55,6 +55,29 @@ function deriveParts(root: string, filePath: string): {
   return { publisher, category, name };
 }
 
+/** Stat a single package path into a {@link ScannedPackage} (watcher use). */
+export async function statPackage(
+  root: string,
+  filePath: string,
+): Promise<ScannedPackage | undefined> {
+  let st;
+  try {
+    st = await stat(filePath);
+  } catch {
+    return undefined;
+  }
+  if (!st.isFile()) return undefined;
+  const { publisher, category, name } = deriveParts(root, filePath);
+  return {
+    filePath,
+    publisher,
+    category,
+    name,
+    mtimeMs: Math.floor(st.mtimeMs),
+    size: st.size,
+  };
+}
+
 /**
  * Scan the cache root, returning one entry per `.unitypackage` with its
  * mtime/size (used for incremental re-scans — spec §3.3). Returns an empty list

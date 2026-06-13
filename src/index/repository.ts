@@ -102,6 +102,30 @@ export class Repository {
         kharma_id: p.productId ?? p.id,
         indexed_at: now,
       });
+    this.#writeProductFts(p.id);
+  }
+
+  /** Rebuild the product-level FTS row from the current product row. */
+  #writeProductFts(productId: string): void {
+    const r = this.getProduct(productId);
+    if (!r) return;
+    this.#db
+      .prepare("DELETE FROM products_fts WHERE product_id = ?")
+      .run(productId);
+    this.#db
+      .prepare(
+        `INSERT INTO products_fts
+           (product_name, publisher, category, tags, description, product_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        r.name,
+        r.publisher,
+        r.category ?? "",
+        r.tags ?? "",
+        r.description ?? "",
+        productId,
+      );
   }
 
   /** Bulk catalog import in one transaction; returns the count written. */
@@ -165,6 +189,7 @@ export class Repository {
         });
 
       this.#replaceFiles(p.id, ip.files, p.name, p.publisher, ip.category, ip.tags);
+      this.#writeProductFts(p.id);
     });
     tx(indexed);
   }
@@ -253,6 +278,7 @@ export class Repository {
            WHERE product_id = ?`,
         )
         .run(meta.category ?? null, tagText ?? null, productId);
+      this.#writeProductFts(productId);
     });
     tx();
   }
@@ -273,6 +299,66 @@ export class Repository {
       .get(id) as
       | (FileRow & { store_url: string; local_path: string | null; kharma_id: string | null })
       | undefined;
+  }
+
+  /** Reconstruct CatalogProduct rows from the index (for local matching). */
+  listCatalogProducts(): CatalogProduct[] {
+    const rows = this.#db
+      .prepare(
+        "SELECT product_id, name, publisher, download_size, is_hidden, kharma_id FROM products",
+      )
+      .all() as Array<{
+      product_id: string;
+      name: string;
+      publisher: string;
+      download_size: number | null;
+      is_hidden: number;
+      kharma_id: string | null;
+    }>;
+    return rows.map((r) => ({
+      id: r.product_id,
+      productId: r.kharma_id ?? r.product_id,
+      name: r.name,
+      publisher: r.publisher,
+      ...(r.download_size !== null ? { downloadSize: r.download_size } : {}),
+      isHidden: r.is_hidden === 1,
+    }));
+  }
+
+  /** Product ids that are owned but not yet deep-indexed (online fetch queue). */
+  listProductsToFetchOnline(limit?: number): string[] {
+    const sql =
+      "SELECT product_id FROM products WHERE coverage = 'shallow' AND source = 'online'" +
+      (limit ? " LIMIT ?" : "");
+    const rows = (limit
+      ? this.#db.prepare(sql).all(limit)
+      : this.#db.prepare(sql).all()) as { product_id: string }[];
+    return rows.map((r) => r.product_id);
+  }
+
+  /** Product ids lacking related-keyword metadata (enrichment queue). */
+  listProductsToEnrich(limit?: number): string[] {
+    const sql =
+      "SELECT product_id FROM products WHERE tags IS NULL OR tags = ''" +
+      (limit ? " LIMIT ?" : "");
+    const rows = (limit
+      ? this.#db.prepare(sql).all(limit)
+      : this.#db.prepare(sql).all()) as { product_id: string }[];
+    return rows.map((r) => r.product_id);
+  }
+
+  /** Map a stored product row back to a CatalogProduct. */
+  catalogProductFor(productId: string): CatalogProduct | undefined {
+    const r = this.getProduct(productId);
+    if (!r) return undefined;
+    return {
+      id: r.product_id,
+      productId: r.kharma_id ?? r.product_id,
+      name: r.name,
+      publisher: r.publisher,
+      ...(r.download_size !== null ? { downloadSize: r.download_size } : {}),
+      isHidden: r.is_hidden === 1,
+    };
   }
 
   listPublishers(): string[] {

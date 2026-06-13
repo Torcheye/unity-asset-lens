@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS scanned_packages (
   indexed_at INTEGER NOT NULL
 );
 
+-- Product-level metadata FTS: lets a product be found by name/keywords even
+-- before it has any indexed files (shallow/online/wrapper), then "upgraded" to
+-- file hits once deep-indexed (spec §4, §7). product_id carried UNINDEXED.
+CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
+  product_name,
+  publisher,
+  category,
+  tags,
+  description,
+  product_id UNINDEXED,
+  tokenize = 'unicode61'
+);
+
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT
