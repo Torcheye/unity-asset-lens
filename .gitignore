@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Local runtime data / user index
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+/data/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.tsbuildinfo

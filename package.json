@@ -1,0 +1,48 @@
+{
+  "name": "assetlens",
+  "version": "0.1.0",
+  "description": "Keyword search over your entire owned Unity Asset Store library, at the individual-file level.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "assetlens": "./dist/cli/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "cli": "tsx src/cli/index.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "keywords": [
+    "unity",
+    "asset-store",
+    "search",
+    "unitypackage",
+    "sqlite",
+    "fts5"
+  ],
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "tar-stream": "^3.1.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.5",
+    "@types/tar-stream": "^3.1.3",
+    "@vitest/coverage-v8": "^2.1.8",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
