@@ -42,6 +42,12 @@ export function storeUrl(id: string): string {
   return `${STORE_ORIGIN}/packages/slug/${encodeURIComponent(id)}`;
 }
 
+/** Build a store search URL — used as the "open" target for local-only
+ * packages that could not be matched to a known store product id. */
+export function storeSearchUrl(query: string): string {
+  return `${STORE_ORIGIN}/search?q=${encodeURIComponent(query)}`;
+}
+
 /**
  * Build the `kharma` deep link that opens Unity's Package Manager on a product
  * (spec §5.7 download action). Prefer `productId`, falling back to the store id.
