@@ -1,15 +1,16 @@
 import type { CatalogProduct } from "../domain/types.js";
 
 /**
- * Parse the owned-product catalog exported via the browser console snippet
- * (spec §5.1, §10: "console-export snippet dumps the owned list").
+ * Parse an owned-product catalog into normalised {@link CatalogProduct}s
+ * (spec §5.1). The primary producer is the browser login (`auth/`), which passes
+ * a bare array of `Product` nodes; `assetlens import <file>` can also load a
+ * previously captured JSON.
  *
- * The export shape varies depending on how the user captured it, so this is
- * deliberately tolerant. It accepts, in order of preference:
- *  - the raw `graphql/batch` response array: `[{ data: { searchMyAssets: { results: [...] } } }]`
- *  - a single operation object: `{ data: { searchMyAssets: { results: [...] } } }`
- *  - a `{ results: [...] }` / `{ products: [...] }` wrapper
+ * The shape varies depending on how it was captured, so this is deliberately
+ * tolerant. It accepts, in order of preference:
  *  - a bare array of product objects
+ *  - a `{ results: [...] }` / `{ products: [...] }` wrapper
+ *  - a raw `graphql/batch` response array: `[{ data: { <op>: { results: [...] } } }]`
  *
  * Each product node is normalised; rows without a usable id are dropped (and
  * reported) rather than throwing, so one malformed entry never loses the rest.
@@ -111,7 +112,7 @@ function extractProductNodes(root: Json): Json[] {
   return extractFromOperation(rec);
 }
 
-/** From one `{ data: { searchMyAssets: { results } } }` operation object. */
+/** From one `{ data: { <op>: { results } } }` graphql operation object. */
 function extractFromOperation(node: Json): Json[] {
   const rec = asRecord(node);
   if (!rec) return [];
@@ -158,7 +159,7 @@ export function parseMyAssetsText(text: string): ParseResult {
   } catch (err) {
     throw new Error(
       `Catalog file is not valid JSON: ${(err as Error).message}. ` +
-        `Expected a myassets.json export from the console snippet (spec §5.1).`,
+        `Expected a JSON array of owned-product nodes (spec §5.1).`,
     );
   }
   return parseMyAssets(json);

@@ -49,7 +49,7 @@ describe("AssetLensEngine integration (spec Phase 1 pipeline)", () => {
     });
 
     try {
-      // 1. Import catalog (console export shape).
+      // 1. Import catalog (bare array of product nodes).
       const { imported } = engine.importCatalogJson(
         JSON.stringify([
           { id: "1", productId: "kh1", name: "Pack A", publisher: { name: "Acme" } },

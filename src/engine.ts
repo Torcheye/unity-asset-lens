@@ -122,7 +122,7 @@ export class AssetLensEngine {
 
   // ---- catalog (spec §5.1) -------------------------------------------------
 
-  /** Import the owned-product catalog from a console-export JSON file. */
+  /** Import the owned-product catalog from a captured JSON file. */
   async importCatalogFile(
     path: string,
   ): Promise<{ imported: number; skipped: number }> {

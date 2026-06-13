@@ -12,7 +12,6 @@ export const GRAPHQL_BATCH_URL = `${STORE_ORIGIN}/api/graphql/batch`;
 
 /** GraphQL operation names sent in the `operations` header (spec §3.4). */
 export const OPERATIONS = {
-  searchMyAssets: "searchMyAssets",
   previewAssets: "PreviewAssets",
 } as const;
 

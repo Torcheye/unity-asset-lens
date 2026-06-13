@@ -34,7 +34,7 @@ describe("parseMyAssets", () => {
     const batch = [
       {
         data: {
-          searchMyAssets: {
+          ownedProducts: {
             results: [
               { id: "1", name: "A", publisher: { name: "P" } },
               { id: "2", name: "B", publisher: { name: "P" } },

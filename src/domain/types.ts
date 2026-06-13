@@ -29,7 +29,7 @@ export type FileTypeBucket =
   | "other";
 
 /**
- * One owned product (asset) from the catalog (spec §3.4 `searchMyAssets`).
+ * One owned product (asset) from the catalog (`CurrentUser.myAssets` + `Product`).
  * `id` is the store id used for `PreviewAssets` and the public store URL;
  * `productId` is preferred for the `kharma` download deep link when present.
  */

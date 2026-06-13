@@ -17,7 +17,7 @@ Usage:
   assetlens login [--no-remember] [--timeout SECONDS]
                                         Sign in via a browser window and import your owned catalog (spec §5.1)
   assetlens logout                      Forget the saved browser login session
-  assetlens import <myassets.json>      Import owned catalog from a console export (spec §5.1)
+  assetlens import <file.json>          Import owned catalog from a captured JSON file (spec §5.1)
   assetlens scan [--force] [--no-recurse]
                                         Index downloaded .unitypackage cache (spec §5.2/3)
   assetlens fetch [--cookie <hdr>] [--limit N] [--delay MS]
@@ -89,7 +89,7 @@ async function run(argv: string[]): Promise<number> {
 
       case "import": {
         const file = positionals[0];
-        if (!file) throw new Error("Usage: assetlens import <myassets.json>");
+        if (!file) throw new Error("Usage: assetlens import <file.json>");
         const { imported, skipped } = await engine.importCatalogFile(file);
         process.stdout.write(
           `Imported ${imported} products${skipped ? ` (skipped ${skipped} malformed)` : ""}.\n`,

@@ -2,7 +2,7 @@ import { MY_ASSETS_URL, OWNED_DETAIL_BATCH_SIZE } from "../store/constants.js";
 import type { SessionStore } from "./sessionStore.js";
 
 /**
- * Browser-driven catalog login (spec §5.1, §9 — evolution of the console export).
+ * Browser-driven catalog login (spec §5.1, §9).
  *
  * Rather than handle the user's credentials, AssetLens drives a real browser
  * window to Unity's own sign-in page. Once signed in, the "My Assets" page fires

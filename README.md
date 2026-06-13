@@ -70,11 +70,9 @@ assetlens watch                 # auto-index packages as Unity finishes download
 
 ## Authentication (the only setup step)
 
-Listing the catalog (`searchMyAssets`) needs your logged-in Unity session.
-**AssetLens never handles your credentials** — the password only ever goes into
-Unity's own login page. There are two ways to provide the session:
-
-### `assetlens login` (recommended, zero copy-paste)
+Listing your owned catalog needs your logged-in Unity session. **AssetLens never
+handles your credentials** — the password only ever goes into Unity's own login
+page.
 
 ```bash
 assetlens login                 # opens a browser, you log in, catalog imports automatically
@@ -83,25 +81,21 @@ assetlens logout                # forget the saved session
 ```
 
 AssetLens opens a real browser window pointed at Unity's sign-in page. You log
-in there normally (SSO, 2FA, social login all work); once you're authenticated
-it runs the `searchMyAssets` query *inside that page* and imports the result —
-no DevTools, no JSON file. By default the session is remembered locally (in the
+in there normally (SSO, 2FA, social login all work). Once you're authenticated
+it reads your owned-product list from the same `CurrentUser` request the My
+Assets page makes, resolves each product's details, and imports them — no
+DevTools, no JSON file. By default the session is remembered locally (in the
 data dir, see below) so you usually skip the login screen next time; `logout`
 clears it.
 
 This uses [Playwright](https://playwright.dev) driving your **already-installed
-Chrome or Edge** (no separate browser download). `playwright-core` is an
-*optional* dependency: install it once with `npm install playwright-core` if it
-wasn't installed automatically.
+default browser** (Chrome or Edge — no separate browser download).
+`playwright-core` is an *optional* dependency: install it once with
+`npm install playwright-core` if it wasn't installed automatically.
 
-### Console exporter (fallback, no extra dependency)
-
-If you'd rather not use Playwright, the transparent browser-console snippet
-still works:
-
-1. Log in at <https://assetstore.unity.com>.
-2. Open DevTools → Console and paste [`scripts/export-myassets.js`](./scripts/export-myassets.js).
-3. A `myassets.json` download starts → `assetlens import myassets.json`.
+> You can also import a previously captured catalog JSON with
+> `assetlens import <file.json>` — it accepts a bare array of product nodes
+> (`{ id, name, publisher, … }`).
 
 Fetching public content (`PreviewAssets`) needs **no login** — AssetLens fetches
 a `_csrf` cookie anonymously. (For sites/regions that require it, you can pass a
@@ -111,8 +105,8 @@ cookie header with `--cookie`.)
 
 | Stage | Spec | Notes |
 |---|---|---|
-| Browser login | §5.1, §9 | Drives your installed Chrome/Edge to Unity's login page; runs `searchMyAssets` inside the authenticated page — no credential handling. Session persisted locally (cleared by `logout`) |
-| Catalog import | §5.1 | Tolerant `myassets.json` parser (console-export fallback); flags hidden (`#BIN`) assets |
+| Browser login | §5.1, §9 | Drives your installed default browser to Unity's login page; sniffs the owned IDs from the `CurrentUser` response, then batches `Product` queries for details — no credential handling. Session persisted locally (cleared by `logout`) |
+| Catalog import | §5.1 | Tolerant parser for a captured catalog JSON (bare array of product nodes) |
 | Local scan | §3.1–3.3, §5.2/3 | Per-OS cache path; streams tar reading only `pathname` members; recurses nested `.unitypackage` wrapper blobs (tar-in-tar); incremental by mtime/size |
 | Online fetch | §3.4, §5.4 | `PreviewAssets` pagination + path reconstruction; wrappers are opaque online → `coverage = shallow` |
 | Enrichment | §3.4, §5.5 | Category + related keywords from one public product-page GET |
@@ -140,7 +134,7 @@ Default cache roots:
 import { AssetLensEngine } from "assetlens";
 
 const engine = AssetLensEngine.open();
-engine.importCatalogJson(await fs.readFile("myassets.json", "utf8"));
+await engine.loginAndImport(); // browser sign-in → owned catalog imported
 await engine.scanLocal();
 const results = engine.search("ui click sound", { typeBucket: "audio" });
 engine.close();
@@ -152,11 +146,11 @@ The package also exports the lower-level pieces (`parseUnityPackageFile`,
 
 ## Limitations & notes
 
-- AssetLens uses **undocumented** store endpoints (`searchMyAssets`,
+- AssetLens uses **undocumented** store operations (`CurrentUser`, `Product`,
   `PreviewAssets`) that may change without notice. The operation strings live in
   one place — [`src/store/constants.ts`](./src/store/constants.ts). If they
   break, re-capture them from DevTools → Network (filter `graphql/batch`) and
-  update that module and `scripts/export-myassets.js`.
+  update that module.
 - **UPM-format** Asset Store content (stored in the global package cache) is out
   of scope for v0 (spec §3.1).
 - Be a good citizen: AssetLens throttles online requests and caches aggressively.

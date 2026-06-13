@@ -6,9 +6,9 @@ import { STORE_ORIGIN } from "./constants.js";
  *
  * Every visitor — including anonymous — gets a `_csrf` cookie. To call the
  * GraphQL endpoint we send that cookie back *and* echo its value in the
- * `x-csrf-token` header. `PreviewAssets` needs only this; `searchMyAssets`
- * additionally needs the logged-in session cookies (supplied by the user's
- * console export).
+ * `x-csrf-token` header. `PreviewAssets` needs only this; the owned-catalog
+ * operations additionally need the logged-in session cookies (handled by the
+ * browser login in `auth/`).
  */
 
 export interface StoreSession {
@@ -63,9 +63,9 @@ export function sessionFromCsrfCookie(rawCsrf: string): StoreSession {
 }
 
 /**
- * Build an authenticated session from exported cookies (for `searchMyAssets`).
- * `cookieHeader` is the full `Cookie` string the user copied from a logged-in
- * session; the `_csrf` value within it is echoed as the token.
+ * Build a session from a full `Cookie` header (the `fetch --cookie` escape
+ * hatch for regions/sites that require cookies for `PreviewAssets`). The
+ * `_csrf` value within it is echoed as the token.
  */
 export function sessionFromCookieHeader(cookieHeader: string): StoreSession {
   const pairs = cookieHeader.split(";").map((c) => c.trim());
