@@ -4,21 +4,24 @@ import type { PathEnv } from "../../src/config/paths.js";
 import type {
   BrowserLauncher,
   LoginBrowser,
-  MyAssetsPage,
+  OwnedIdsResult,
 } from "../../src/auth/browserLogin.js";
 import type { SessionStore } from "../../src/auth/sessionStore.js";
 
 const env: PathEnv = { platform: "linux", home: "/home/x", env: {} };
 
-/** Mock launcher whose browser replays a fixed `searchMyAssets` transcript. */
-function scriptedLauncher(script: MyAssetsPage[]): BrowserLauncher {
-  let idx = 0;
+/** Mock launcher: replays owned IDs, then resolves details from a fixture map. */
+function scriptedLauncher(
+  ownedIds: string[],
+  detailFor: (id: string) => unknown,
+): BrowserLauncher {
   const browser: LoginBrowser = {
     async goto() {},
-    async fetchMyAssetsPage() {
-      const page = script[idx++];
-      if (!page) throw new Error("script exhausted");
-      return page;
+    async getOwnedProductIds(): Promise<OwnedIdsResult> {
+      return { authenticated: true, ids: ownedIds };
+    },
+    async fetchProductDetails(ids) {
+      return ids.map((id) => detailFor(id));
     },
     async storageState() {
       return { kind: "state" };
@@ -47,25 +50,14 @@ function memStore() {
 }
 
 describe("AssetLensEngine.loginAndImport", () => {
-  it("imports the owned catalog fetched via the browser and makes it searchable", async () => {
-    // Auth probe, then one short visible page and one duplicate hidden page.
-    const launcher = scriptedLauncher([
-      { authenticated: true, results: [], total: 3 },
-      {
-        authenticated: true,
-        total: 3,
-        results: [
-          { id: "1", productId: "kh1", name: "Pack A", publisher: { name: "Acme" } },
-          { id: "2", name: "Pack B", publisher: { name: "Beta" } },
-        ],
-      },
-      {
-        authenticated: true,
-        total: 1,
-        // Duplicate id "2" (also #BIN) — must be de-duplicated on import.
-        results: [{ id: "2", name: "Pack B", publisher: { name: "Beta" } }],
-      },
-    ]);
+  it("imports the owned catalog discovered via the browser and makes it searchable", async () => {
+    const details: Record<string, unknown> = {
+      "1": { id: "1", productId: "kh1", name: "Pack A", publisher: { name: "Acme" } },
+      "2": { id: "2", name: "Pack B", publisher: { name: "Beta" } },
+      // "3" is delisted → driver returns a minimal { id } node.
+      "3": { id: "3" },
+    };
+    const launcher = scriptedLauncher(["1", "2", "3"], (id) => details[id]);
     const { store, saved } = memStore();
     const engine = AssetLensEngine.open({ dbPath: ":memory:", cacheRoot: "/tmp/none", env });
 
@@ -73,17 +65,17 @@ describe("AssetLensEngine.loginAndImport", () => {
       const result = await engine.loginAndImport({
         launcher,
         sessionStore: store,
+        batchSize: 2,
         sleep: async () => {},
         now: () => 0,
       });
 
-      expect(result.fetched).toBe(3); // raw nodes (incl. the dup)
-      expect(result.imported).toBe(2); // de-duplicated
-      expect(result.hidden).toBe(1);
+      expect(result.owned).toBe(3);
+      expect(result.imported).toBe(3); // incl. the delisted id with a fallback name
       expect(result.remembered).toBe(true);
       expect(saved).toEqual([{ kind: "state" }]);
 
-      expect(engine.stats().products).toBe(2);
+      expect(engine.stats().products).toBe(3);
       const groups = engine.search("Pack");
       expect(groups.map((g) => g.productId).sort()).toEqual(["1", "2"]);
     } finally {
@@ -97,7 +89,6 @@ describe("AssetLensEngine.loginAndImport", () => {
     try {
       await engine.logout(store);
       expect(clearedCount()).toBe(1);
-      // The default path is reported for user messaging.
       expect(engine.sessionStatePath).toContain("session.json");
     } finally {
       engine.close();

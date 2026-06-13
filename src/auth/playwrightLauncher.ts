@@ -1,14 +1,14 @@
 import { execFile } from "node:child_process";
 import {
   GRAPHQL_BATCH_URL,
-  SEARCH_MY_ASSETS_QUERY,
+  PRODUCT_OPERATION,
+  PRODUCT_QUERY,
   STORE_ORIGIN,
 } from "../store/constants.js";
 import type {
   BrowserLauncher,
-  FetchPageInput,
   LoginBrowser,
-  MyAssetsPage,
+  OwnedIdsResult,
 } from "./browserLogin.js";
 import {
   detectDefaultChannel,
@@ -18,16 +18,18 @@ import {
 
 /**
  * The real {@link BrowserLauncher}, backed by Playwright driving the user's
- * already-installed browser (their default of Chrome/Edge), so there is no
- * separate browser download. `playwright-core` is an *optional* dependency,
- * loaded lazily here — the core engine and search path never require it.
+ * already-installed default browser (Chrome/Edge), so there is no separate
+ * browser download. `playwright-core` is an *optional* dependency, loaded
+ * lazily here — the core engine and search path never require it.
  *
- * Crucially, the `searchMyAssets` request is made via `context.request` (a
- * Node-side HTTP client sharing the browser's cookie jar) rather than
- * `page.evaluate`. Unity's login flow navigates the page across origins
- * (assetstore → id.unity.com → back); an in-page evaluate would be destroyed by
- * those navigations and could not reach the storefront origin anyway. The
- * request API is immune to both.
+ * Two things make this robust against Unity's actual behaviour (learned by
+ * capturing live traffic):
+ *  - The owned library is discovered by *sniffing* the `CurrentUser` response
+ *    the My Assets page fires (`user.myAssets` is a JSON array of product IDs),
+ *    not by a guessed `searchMyAssets` query (which does not exist).
+ *  - Detail and any replayed requests use `context.request` (a Node-side client
+ *    sharing the browser's cookie jar), immune to the cross-origin navigation
+ *    the login flow performs (assetstore → id.unity.com → back).
  *
  * This module talks to a live browser and is therefore exercised manually
  * rather than in unit tests (it is excluded from coverage); the testable
@@ -51,6 +53,10 @@ interface PwApiRequest {
     opts: { headers?: Record<string, string>; data?: unknown },
   ): Promise<PwApiResponse>;
 }
+interface PwResponse {
+  url(): string;
+  json(): Promise<unknown>;
+}
 interface PwPage {
   goto(url: string, opts?: unknown): Promise<unknown>;
 }
@@ -59,6 +65,7 @@ interface PwContext {
   storageState(): Promise<unknown>;
   cookies(urls?: string | string[]): Promise<PwCookie[]>;
   readonly request: PwApiRequest;
+  on(event: "response", handler: (res: PwResponse) => void): void;
 }
 interface PwBrowser {
   newContext(opts?: unknown): Promise<PwContext>;
@@ -134,21 +141,34 @@ async function readCsrf(context: PwContext): Promise<string | undefined> {
   }
 }
 
-function interpret(json: unknown): MyAssetsPage {
-  const batch = Array.isArray(json) ? json[0] : json;
-  const node = (
-    batch as
-      | { data?: { searchMyAssets?: { results?: unknown[]; total?: number } } }
-      | undefined
-  )?.data?.searchMyAssets;
-  if (!node) {
-    return { authenticated: false, results: [], total: null, reason: "no-data" };
+/**
+ * Inspect a storefront GraphQL response for the `CurrentUser` payload and pull
+ * the owned product IDs out of `user.myAssets` (a JSON-encoded string array).
+ * Returns null for unrelated responses.
+ */
+async function extractOwnedIds(res: PwResponse): Promise<string[] | null> {
+  if (!res.url().includes("/api/graphql/batch")) return null;
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return null;
   }
-  return {
-    authenticated: true,
-    results: node.results ?? [],
-    total: typeof node.total === "number" ? node.total : null,
-  };
+  const entries = Array.isArray(json) ? json : [json];
+  for (const entry of entries) {
+    const myAssets = (
+      entry as { data?: { user?: { myAssets?: unknown } } } | undefined
+    )?.data?.user?.myAssets;
+    if (typeof myAssets === "string") {
+      try {
+        const ids: unknown = JSON.parse(myAssets);
+        if (Array.isArray(ids)) return ids.map((x) => String(x));
+      } catch {
+        /* not the payload we expected */
+      }
+    }
+  }
+  return null;
 }
 
 export function playwrightLauncher(
@@ -167,6 +187,15 @@ export function playwrightLauncher(
           ? { storageState: launchOpts.storageState }
           : {},
       );
+
+      // Sniff the owned-product IDs from the page's own CurrentUser request.
+      let ownedIds: string[] | null = null;
+      context.on("response", (res) => {
+        void extractOwnedIds(res).then((ids) => {
+          if (ids) ownedIds = ids;
+        });
+      });
+
       // A visible tab the user actually logs in to.
       const page = await context.newPage();
 
@@ -175,51 +204,39 @@ export function playwrightLauncher(
           await page.goto(url, { waitUntil: "domcontentloaded" });
         },
 
-        async fetchMyAssetsPage(input: FetchPageInput) {
-          try {
-            const csrf = await readCsrf(context);
-            if (!csrf) {
-              return { authenticated: false, results: [], total: null, reason: "no-csrf" };
-            }
-            const res = await context.request.post(GRAPHQL_BATCH_URL, {
-              headers: {
-                "Content-Type": "application/json",
-                "x-requested-with": "XMLHttpRequest",
-                "x-source": "storefront",
-                operations: "searchMyAssets",
-                "x-csrf-token": csrf,
-              },
-              data: [
-                {
-                  query: SEARCH_MY_ASSETS_QUERY,
-                  operationName: "searchMyAssets",
-                  variables: {
-                    page: input.page,
-                    pageSize: input.pageSize,
-                    sortBy: 7,
-                    tagging: input.tagging,
-                  },
-                },
-              ],
-            });
-            if (!res.ok()) {
-              return {
-                authenticated: false,
-                results: [],
-                total: null,
-                reason: `http ${res.status()}`,
-              };
-            }
-            return interpret(await res.json());
-          } catch (err) {
-            // Transient (navigation, network) — let the poll loop retry.
-            return {
-              authenticated: false,
-              results: [],
-              total: null,
-              reason: (err as Error).message,
-            };
-          }
+        async getOwnedProductIds(): Promise<OwnedIdsResult> {
+          return ownedIds !== null
+            ? { authenticated: true, ids: ownedIds }
+            : { authenticated: false, ids: [], reason: "awaiting CurrentUser" };
+        },
+
+        async fetchProductDetails(ids: readonly string[]) {
+          const csrf = await readCsrf(context);
+          if (!csrf) throw new Error("missing _csrf cookie");
+          const res = await context.request.post(GRAPHQL_BATCH_URL, {
+            headers: {
+              "Content-Type": "application/json",
+              "x-requested-with": "XMLHttpRequest",
+              "x-source": "storefront",
+              operations: ids.map(() => PRODUCT_OPERATION).join(","),
+              "x-csrf-token": csrf,
+            },
+            data: ids.map((id) => ({
+              query: PRODUCT_QUERY,
+              operationName: PRODUCT_OPERATION,
+              variables: { id },
+            })),
+          });
+          if (!res.ok()) throw new Error(`Product batch HTTP ${res.status()}`);
+          const json = await res.json();
+          const arr = Array.isArray(json) ? json : [];
+          // Keep ownership even for delisted products (null product node).
+          return ids.map((id, i) => {
+            const node = (
+              arr[i] as { data?: { product?: unknown } } | undefined
+            )?.data?.product;
+            return node ?? { id };
+          });
         },
 
         storageState() {

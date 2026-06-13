@@ -2,31 +2,44 @@ import { describe, it, expect } from "vitest";
 import {
   runBrowserLogin,
   type BrowserLauncher,
-  type FetchPageInput,
   type LaunchOptions,
   type LoginBrowser,
-  type MyAssetsPage,
+  type OwnedIdsResult,
 } from "../../src/auth/browserLogin.js";
 import type { SessionStore } from "../../src/auth/sessionStore.js";
 
-/** A scripted {@link LoginBrowser} that returns pre-baked pages per call. */
-function makeBrowser(script: MyAssetsPage[]) {
+interface BrowserScript {
+  /** OwnedIds probes returned in order, one per poll. */
+  readonly probes: OwnedIdsResult[];
+  /** Maps a requested ID to its product node (missing → null node). */
+  readonly detailFor?: (id: string) => unknown;
+  /** IDs (joined) for which fetchProductDetails should throw. */
+  readonly failBatch?: (ids: readonly string[]) => boolean;
+}
+
+function makeBrowser(script: BrowserScript) {
   const events = {
     goto: [] as string[],
-    fetches: [] as FetchPageInput[],
+    detailBatches: [] as string[][],
     closed: 0,
     stateRequested: 0,
   };
-  let idx = 0;
+  let probeIdx = 0;
   const browser: LoginBrowser = {
     async goto(url) {
       events.goto.push(url);
     },
-    async fetchMyAssetsPage(input) {
-      events.fetches.push(input);
-      const page = script[idx++];
-      if (!page) throw new Error(`no scripted page for call ${idx - 1}`);
-      return page;
+    async getOwnedProductIds() {
+      const r = script.probes[Math.min(probeIdx, script.probes.length - 1)];
+      probeIdx += 1;
+      if (!r) throw new Error("no probe scripted");
+      return r;
+    },
+    async fetchProductDetails(ids) {
+      events.detailBatches.push([...ids]);
+      if (script.failBatch?.(ids)) throw new Error("batch boom");
+      const map = script.detailFor ?? ((id: string) => ({ id }));
+      return ids.map((id) => map(id));
     },
     async storageState() {
       events.stateRequested += 1;
@@ -52,7 +65,6 @@ function makeLauncher(browser: LoginBrowser) {
 
 function makeStore(loadValue: unknown = null) {
   const saved: unknown[] = [];
-  let cleared = 0;
   const store: SessionStore = {
     path: "/mem/session.json",
     async load() {
@@ -61,42 +73,27 @@ function makeStore(loadValue: unknown = null) {
     async save(state) {
       saved.push(state);
     },
-    async clear() {
-      cleared += 1;
-    },
+    async clear() {},
   };
-  return { store, saved, clearedCount: () => cleared };
+  return { store, saved };
 }
 
-const a = { id: "a" };
-const b = { id: "b" };
-const c = { id: "c" };
-const d = { id: "d" };
-const e = { id: "e" };
-const h = { id: "h" };
-
-const PAGE = 3;
+const authed = (ids: string[]): OwnedIdsResult => ({ authenticated: true, ids });
+const pending: OwnedIdsResult = { authenticated: false, ids: [] };
 
 describe("runBrowserLogin", () => {
-  it("waits for sign-in, paginates visible + hidden, and remembers the session", async () => {
-    const script: MyAssetsPage[] = [
-      // waitForAuth: two logged-out probes, then authenticated.
-      { authenticated: false, results: [], total: null },
-      { authenticated: false, results: [], total: null },
-      { authenticated: true, results: [], total: 6 },
-      // visible: full page (==PAGE) then short page → stop.
-      { authenticated: true, results: [a, b, c], total: 6 },
-      { authenticated: true, results: [d, e], total: 6 },
-      // hidden (#BIN): short page → stop.
-      { authenticated: true, results: [h], total: 1 },
-    ];
-    const { browser, events } = makeBrowser(script);
+  it("waits for sign-in, batches detail fetches, and remembers the session", async () => {
+    const ids = ["1", "2", "3", "4", "5"];
+    const { browser, events } = makeBrowser({
+      probes: [pending, pending, authed(ids)],
+      detailFor: (id) => ({ id, name: `Pack ${id}` }),
+    });
     const { launcher, launchOpts } = makeLauncher(browser);
     const { store, saved } = makeStore();
     const progress: string[] = [];
 
     const result = await runBrowserLogin(launcher, store, {
-      pageSize: PAGE,
+      batchSize: 2,
       pollIntervalMs: 5,
       loginTimeoutMs: 60_000,
       onProgress: (m) => progress.push(m),
@@ -104,65 +101,47 @@ describe("runBrowserLogin", () => {
       now: () => 1_000, // constant clock — never times out
     });
 
-    expect(result.products).toEqual([a, b, c, d, e, h]);
-    expect(result.hidden).toBe(1);
+    expect(result.ownedCount).toBe(5);
+    expect(result.products).toHaveLength(5);
     expect(result.remembered).toBe(true);
-
-    // Session was persisted (the browser's storageState snapshot).
     expect(saved).toEqual([{ kind: "saved-state" }]);
-    expect(events.stateRequested).toBe(1);
 
-    // No saved session to restore → launched with empty options.
-    expect(launchOpts).toEqual([{}]);
-
-    // Visible scan used tagging:null; hidden scan used #BIN.
-    expect(events.fetches.at(3)?.tagging).toBeNull();
-    expect(events.fetches.at(5)?.tagging).toEqual(["#BIN"]);
+    // 5 ids in batches of 2 → [2,2,1].
+    expect(events.detailBatches).toEqual([["1", "2"], ["3", "4"], ["5"]]);
+    expect(launchOpts).toEqual([{}]); // no saved session to restore
     expect(events.goto).toHaveLength(1);
     expect(events.closed).toBe(1);
   });
 
   it("restores a saved session and skips persistence when remember=false", async () => {
-    const script: MyAssetsPage[] = [
-      { authenticated: true, results: [], total: 0 }, // already signed in
-      { authenticated: true, results: [], total: 0 }, // visible: empty → stop
-      { authenticated: true, results: [], total: 0 }, // hidden: empty → stop
-    ];
-    const { browser, events } = makeBrowser(script);
+    const { browser, events } = makeBrowser({ probes: [authed([])] });
     const { launcher, launchOpts } = makeLauncher(browser);
     const { store, saved } = makeStore({ kind: "restored" });
 
     const result = await runBrowserLogin(launcher, store, {
-      pageSize: PAGE,
       remember: false,
       sleep: async () => {},
       now: () => 0,
     });
 
+    expect(result.ownedCount).toBe(0);
     expect(result.products).toEqual([]);
     expect(result.remembered).toBe(false);
-    expect(saved).toEqual([]); // not persisted
+    expect(saved).toEqual([]);
     expect(events.stateRequested).toBe(0);
-    // The saved session was handed to the launcher.
+    expect(events.detailBatches).toEqual([]); // nothing to fetch
     expect(launchOpts).toEqual([{ storageState: { kind: "restored" } }]);
     expect(events.closed).toBe(1);
   });
 
   it("times out (and still closes the browser) if the user never signs in", async () => {
-    const script: MyAssetsPage[] = Array.from({ length: 10 }, () => ({
-      authenticated: false,
-      results: [],
-      total: null,
-    }));
-    const { browser, events } = makeBrowser(script);
+    const { browser, events } = makeBrowser({ probes: [pending] });
     const { launcher } = makeLauncher(browser);
     const { store } = makeStore();
 
-    // A clock that advances only when we sleep.
     let t = 0;
     await expect(
       runBrowserLogin(launcher, store, {
-        pageSize: PAGE,
         pollIntervalMs: 5,
         loginTimeoutMs: 10,
         sleep: async (ms) => {
@@ -175,24 +154,29 @@ describe("runBrowserLogin", () => {
     expect(events.closed).toBe(1);
   });
 
-  it("aborts cleanly if the session drops mid-export", async () => {
-    const script: MyAssetsPage[] = [
-      { authenticated: true, results: [], total: 6 }, // auth probe
-      { authenticated: true, results: [a, b, c], total: 6 }, // visible page 0
-      { authenticated: false, results: [], total: null }, // dropped session
-    ];
-    const { browser, events } = makeBrowser(script);
+  it("continues past a failed batch instead of aborting the whole login", async () => {
+    const ids = ["1", "2", "3", "4"];
+    const { browser, events } = makeBrowser({
+      probes: [authed(ids)],
+      detailFor: (id) => ({ id }),
+      failBatch: (batch) => batch.includes("3"), // second batch fails
+    });
     const { launcher } = makeLauncher(browser);
     const { store } = makeStore();
+    const progress: string[] = [];
 
-    await expect(
-      runBrowserLogin(launcher, store, {
-        pageSize: PAGE,
-        sleep: async () => {},
-        now: () => 0,
-      }),
-    ).rejects.toThrow(/Lost the authenticated session/);
+    const result = await runBrowserLogin(launcher, store, {
+      batchSize: 2,
+      onProgress: (m) => progress.push(m),
+      sleep: async () => {},
+      now: () => 0,
+    });
 
+    // First batch (1,2) succeeded; second (3,4) failed and was skipped.
+    expect(result.products).toHaveLength(2);
+    expect(result.ownedCount).toBe(4);
+    expect(events.detailBatches).toEqual([["1", "2"], ["3", "4"]]);
+    expect(progress.some((m) => m.includes("failed"))).toBe(true);
     expect(events.closed).toBe(1);
   });
 });

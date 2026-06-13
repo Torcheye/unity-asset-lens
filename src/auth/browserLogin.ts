@@ -1,44 +1,39 @@
-import { MY_ASSETS_URL, SEARCH_MY_ASSETS_PAGE_SIZE } from "../store/constants.js";
+import { MY_ASSETS_URL, OWNED_DETAIL_BATCH_SIZE } from "../store/constants.js";
 import type { SessionStore } from "./sessionStore.js";
 
 /**
- * Browser-driven catalog login (spec §5.1, §9 evolution of the console export).
+ * Browser-driven catalog login (spec §5.1, §9 — evolution of the console export).
  *
  * Rather than handle the user's credentials, AssetLens drives a real browser
- * window to Unity's own sign-in page. Once the user is logged in, the same
- * `searchMyAssets` query the console snippet used is run *inside* that
- * authenticated page, so no password ever touches AssetLens.
+ * window to Unity's own sign-in page. Once signed in, the "My Assets" page fires
+ * a `CurrentUser` query whose `user.myAssets` field lists the owned product IDs;
+ * AssetLens reads that (the sign-in signal *and* the ownership list), then
+ * resolves each ID to catalog metadata via batched `Product` queries — all from
+ * within the authenticated session, so no password ever touches AssetLens.
  *
- * This module is the pure orchestration — polling for sign-in, paginating the
- * owned library, and persisting the session — over an injectable
+ * This module is the pure orchestration over an injectable
  * {@link BrowserLauncher}. The real Playwright driver lives in
  * `playwrightLauncher.ts`; tests use a mock launcher.
  */
 
-/** One page of `searchMyAssets`, as observed from inside the browser page. */
-export interface MyAssetsPage {
-  /** False when the page context is not logged in (null `data`, 401, …). */
+/** Result of probing for the signed-in user's owned product IDs. */
+export interface OwnedIdsResult {
+  /** False until the authenticated `CurrentUser` response has been observed. */
   readonly authenticated: boolean;
-  /** Raw product nodes for this page (empty when unauthenticated). */
-  readonly results: readonly unknown[];
-  /** Reported total, when present. */
-  readonly total: number | null;
-  /** Diagnostic reason when `authenticated` is false. */
+  /** Owned product IDs (empty until authenticated). */
+  readonly ids: readonly string[];
+  /** Diagnostic reason when not yet authenticated. */
   readonly reason?: string;
-}
-
-export interface FetchPageInput {
-  readonly page: number;
-  readonly pageSize: number;
-  readonly tagging: readonly string[] | null;
 }
 
 /** A live browser the orchestration drives. Implemented by the Playwright driver. */
 export interface LoginBrowser {
   /** Navigate the visible window to a URL. */
   goto(url: string): Promise<void>;
-  /** Run a single `searchMyAssets` fetch in the page's authenticated context. */
-  fetchMyAssetsPage(input: FetchPageInput): Promise<MyAssetsPage>;
+  /** Current owned-ID state, derived from the sniffed `CurrentUser` response. */
+  getOwnedProductIds(): Promise<OwnedIdsResult>;
+  /** Resolve a batch of owned IDs to raw `Product` nodes (one per ID, in order). */
+  fetchProductDetails(ids: readonly string[]): Promise<unknown[]>;
   /** Snapshot the session (cookies/storage) for persistence. */
   storageState(): Promise<unknown>;
   /** Close the browser window. */
@@ -57,8 +52,10 @@ export interface BrowserLauncher {
 export interface RunBrowserLoginOptions {
   /** Persist the session for next time (default true). */
   readonly remember?: boolean;
-  /** `searchMyAssets` page size (default {@link SEARCH_MY_ASSETS_PAGE_SIZE}). */
-  readonly pageSize?: number;
+  /** `Product` operations per batched request (default {@link OWNED_DETAIL_BATCH_SIZE}). */
+  readonly batchSize?: number;
+  /** Delay between detail batches, in ms (default 0). */
+  readonly delayMs?: number;
   /** How long to wait for the user to sign in, in ms (default 180000). */
   readonly loginTimeoutMs?: number;
   /** Poll interval while waiting for sign-in, in ms (default 1500). */
@@ -73,10 +70,10 @@ export interface RunBrowserLoginOptions {
 }
 
 export interface BrowserLoginResult {
-  /** Raw owned-product nodes (visible + hidden); the caller dedupes/parses. */
+  /** Raw `Product` nodes for the owned library; the caller dedupes/parses. */
   readonly products: readonly unknown[];
-  /** Count of hidden/archived (`#BIN`) products included. */
-  readonly hidden: number;
+  /** Number of owned product IDs discovered. */
+  readonly ownedCount: number;
   /** Whether the session was persisted. */
   readonly remembered: boolean;
 }
@@ -90,16 +87,18 @@ function realSleep(ms: number): Promise<void> {
 
 /**
  * Drive a browser login end to end: restore any saved session, wait for the
- * user to be authenticated, export the owned library, and (optionally) persist
- * the session. The browser is always closed, even on error.
+ * owned-ID list to appear (the sign-in signal), resolve product details in
+ * batches, and (optionally) persist the session. The browser is always closed,
+ * even on error.
  */
 export async function runBrowserLogin(
   launcher: BrowserLauncher,
   store: SessionStore,
   opts: RunBrowserLoginOptions = {},
 ): Promise<BrowserLoginResult> {
-  const pageSize = opts.pageSize ?? SEARCH_MY_ASSETS_PAGE_SIZE;
   const remember = opts.remember ?? true;
+  const batchSize = Math.max(1, opts.batchSize ?? OWNED_DETAIL_BATCH_SIZE);
+  const delayMs = opts.delayMs ?? 0;
   const onProgress = opts.onProgress ?? (() => {});
   const sleep = opts.sleep ?? realSleep;
   const now = opts.now ?? (() => Date.now());
@@ -116,19 +115,31 @@ export async function runBrowserLogin(
     onProgress(`Opening a browser window at ${entryUrl} …`);
     await browser.goto(entryUrl);
 
-    await waitForAuth(browser, {
-      pageSize,
+    const ids = await waitForOwnedIds(browser, {
       pollIntervalMs,
       loginTimeoutMs,
       onProgress,
       sleep,
       now,
     });
+    onProgress(
+      `Signed in. Found ${ids.length} owned products; fetching details…`,
+    );
 
-    onProgress("Signed in. Exporting your owned library…");
-    const visible = await collectAllPages(browser, null, pageSize);
-    const hidden = await collectAllPages(browser, ["#BIN"], pageSize);
-    const products = [...visible, ...hidden];
+    const products: unknown[] = [];
+    for (let start = 0; start < ids.length; start += batchSize) {
+      const chunk = ids.slice(start, start + batchSize);
+      try {
+        const details = await browser.fetchProductDetails(chunk);
+        products.push(...details);
+      } catch (err) {
+        onProgress(
+          `  ! batch ${Math.floor(start / batchSize) + 1} failed: ${(err as Error).message}`,
+        );
+      }
+      onProgress(`  …${Math.min(start + batchSize, ids.length)}/${ids.length}`);
+      if (delayMs > 0 && start + batchSize < ids.length) await sleep(delayMs);
+    }
 
     let remembered = false;
     if (remember) {
@@ -136,17 +147,13 @@ export async function runBrowserLogin(
       remembered = true;
     }
 
-    onProgress(
-      `Fetched ${products.length} owned products (${hidden.length} hidden).`,
-    );
-    return { products, hidden: hidden.length, remembered };
+    return { products, ownedCount: ids.length, remembered };
   } finally {
     await browser.close();
   }
 }
 
 interface WaitOptions {
-  readonly pageSize: number;
   readonly pollIntervalMs: number;
   readonly loginTimeoutMs: number;
   readonly onProgress: (message: string) => void;
@@ -154,20 +161,16 @@ interface WaitOptions {
   readonly now: () => number;
 }
 
-/** Poll the page until `searchMyAssets` returns an authenticated response. */
-async function waitForAuth(
+/** Poll until the authenticated `CurrentUser` response surfaces the owned IDs. */
+async function waitForOwnedIds(
   browser: LoginBrowser,
   opts: WaitOptions,
-): Promise<void> {
+): Promise<readonly string[]> {
   const deadline = opts.now() + opts.loginTimeoutMs;
   let prompted = false;
   for (;;) {
-    const probe = await browser.fetchMyAssetsPage({
-      page: 0,
-      pageSize: opts.pageSize,
-      tagging: null,
-    });
-    if (probe.authenticated) return;
+    const probe = await browser.getOwnedProductIds();
+    if (probe.authenticated) return probe.ids;
     if (!prompted) {
       opts.onProgress(
         "Please sign in to Unity in the browser window — waiting…",
@@ -182,24 +185,4 @@ async function waitForAuth(
     }
     await opts.sleep(opts.pollIntervalMs);
   }
-}
-
-/** Page through `searchMyAssets` until a short/empty page signals the end. */
-async function collectAllPages(
-  browser: LoginBrowser,
-  tagging: readonly string[] | null,
-  pageSize: number,
-): Promise<unknown[]> {
-  const out: unknown[] = [];
-  for (let page = 0; ; page += 1) {
-    const res = await browser.fetchMyAssetsPage({ page, pageSize, tagging });
-    if (!res.authenticated) {
-      throw new Error(
-        "Lost the authenticated session while exporting. Re-run `assetlens login`.",
-      );
-    }
-    out.push(...res.results);
-    if (res.results.length < pageSize) break;
-  }
-  return out;
 }

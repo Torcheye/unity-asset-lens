@@ -38,33 +38,42 @@ export const PREVIEW_ASSETS_QUERY = `query PreviewAssets($id: ID!, $page: Int) {
 export const PREVIEW_ASSETS_PAGE_SIZE = 50;
 
 /**
- * `searchMyAssets` query — the owned-library listing (spec §3.4, §5.1). Needs a
- * logged-in session, so it is run from inside the user's authenticated browser
- * during `assetlens login` (see `auth/`). The browser console exporter mirrors
- * this string; keep them in sync.
+ * Owned-library discovery (spec §5.1), as observed from the live storefront.
+ *
+ * There is no `searchMyAssets` operation. The signed-in "My Assets" page fires
+ * a `CurrentUser` query whose `user.myAssets` field is a JSON-encoded string
+ * array of the owned product IDs. AssetLens reads that list (which doubles as
+ * the sign-in signal), then resolves each ID to catalog metadata via batched
+ * `Product` queries — exactly how the storefront itself does it.
  */
-export const SEARCH_MY_ASSETS_QUERY = `query searchMyAssets($page: Int, $pageSize: Int, $sortBy: Int, $tagging: [String]) {
-  searchMyAssets(page: $page, pageSize: $pageSize, sortBy: $sortBy, tagging: $tagging) {
-    total
-    results {
-      id
-      productId
-      itemId
-      name
-      publisher { name }
-      downloadSize
-      currentVersion { name publishedDate }
-    }
+export const CURRENT_USER_OPERATION = "CurrentUser";
+
+export const PRODUCT_OPERATION = "Product";
+
+/**
+ * Minimal `Product` query to resolve an owned ID to catalog metadata. The
+ * storefront's own query selects far more; we request only what the catalog and
+ * enrichment need. Sent batched (one operation per ID) in a single request.
+ */
+export const PRODUCT_QUERY = `query Product($id: ID!) {
+  product(id: $id) {
+    id
+    productId
+    itemId
+    name
+    downloadSize
+    publisher { name }
+    currentVersion { name publishedDate }
   }
 }`;
 
-/** Page size for `searchMyAssets` pagination during browser login. */
-export const SEARCH_MY_ASSETS_PAGE_SIZE = 100;
+/** How many `Product` operations to batch into one GraphQL request. */
+export const OWNED_DETAIL_BATCH_SIZE = 25;
 
 /**
  * The signed-in "My Assets" page. Navigating here forces Unity's login flow if
- * the user is not authenticated, giving the login browser a same-origin page
- * from which to run `searchMyAssets`.
+ * the user is not authenticated, and once signed in the page fires the
+ * `CurrentUser` query AssetLens listens for.
  */
 export const MY_ASSETS_URL = `${STORE_ORIGIN}/account/assets`;
 

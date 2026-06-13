@@ -72,6 +72,10 @@ export interface LoginImportOptions {
   readonly loginTimeoutMs?: number;
   /** Poll interval while waiting for sign-in, in ms. */
   readonly pollIntervalMs?: number;
+  /** `Product` operations per batched detail request. */
+  readonly batchSize?: number;
+  /** Delay between detail batches, in ms. */
+  readonly delayMs?: number;
   /** Injectable browser launcher (defaults to the lazy Playwright driver). */
   readonly launcher?: BrowserLauncher;
   /** Injectable session store (defaults to the on-disk session file). */
@@ -83,10 +87,8 @@ export interface LoginImportOptions {
 export interface LoginImportResult {
   /** Owned products imported into the index (after de-duplication). */
   readonly imported: number;
-  /** Raw product nodes fetched from the store. */
-  readonly fetched: number;
-  /** Hidden/archived (`#BIN`) products included. */
-  readonly hidden: number;
+  /** Number of owned product IDs discovered for the signed-in user. */
+  readonly owned: number;
   /** Whether the session was persisted for next time. */
   readonly remembered: boolean;
 }
@@ -155,7 +157,7 @@ export class AssetLensEngine {
       });
     const store = opts.sessionStore ?? fileSessionStore(this.sessionStatePath);
 
-    const { products, hidden, remembered } = await runBrowserLogin(
+    const { products, ownedCount, remembered } = await runBrowserLogin(
       launcher,
       store,
       {
@@ -167,6 +169,8 @@ export class AssetLensEngine {
         ...(opts.pollIntervalMs !== undefined
           ? { pollIntervalMs: opts.pollIntervalMs }
           : {}),
+        ...(opts.batchSize !== undefined ? { batchSize: opts.batchSize } : {}),
+        ...(opts.delayMs !== undefined ? { delayMs: opts.delayMs } : {}),
         ...(opts.sleep ? { sleep: opts.sleep } : {}),
         ...(opts.now ? { now: opts.now } : {}),
       },
@@ -174,7 +178,7 @@ export class AssetLensEngine {
 
     const { products: parsed } = parseMyAssets(products);
     const imported = this.repo.importCatalog(parsed, Date.now());
-    return { imported, fetched: products.length, hidden, remembered };
+    return { imported, owned: ownedCount, remembered };
   }
 
   /** Forget the persisted browser session (`assetlens logout`). */

@@ -73,8 +73,7 @@ async function run(argv: string[]): Promise<number> {
             : {}),
         });
         process.stdout.write(
-          `Imported ${result.imported} products ` +
-            `(${result.fetched} fetched, ${result.hidden} hidden)` +
+          `Imported ${result.imported} of ${result.owned} owned products` +
             `${result.remembered ? "; session saved for next time" : ""}.\n`,
         );
         return 0;

@@ -15,7 +15,7 @@ export {
   type BrowserLauncher,
   type LoginBrowser,
   type LaunchOptions,
-  type MyAssetsPage,
+  type OwnedIdsResult,
   type RunBrowserLoginOptions,
   type BrowserLoginResult,
 } from "./auth/browserLogin.js";
