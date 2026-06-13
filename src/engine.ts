@@ -150,7 +150,9 @@ export class AssetLensEngine {
   async loginAndImport(opts: LoginImportOptions = {}): Promise<LoginImportResult> {
     const launcher =
       opts.launcher ??
-      (await import("./auth/playwrightLauncher.js")).playwrightLauncher();
+      (await import("./auth/playwrightLauncher.js")).playwrightLauncher({
+        platform: this.#env.platform,
+      });
     const store = opts.sessionStore ?? fileSessionStore(this.sessionStatePath);
 
     const { products, hidden, remembered } = await runBrowserLogin(

@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import {
   GRAPHQL_BATCH_URL,
   SEARCH_MY_ASSETS_QUERY,
+  STORE_ORIGIN,
 } from "../store/constants.js";
 import type {
   BrowserLauncher,
@@ -8,27 +10,55 @@ import type {
   LoginBrowser,
   MyAssetsPage,
 } from "./browserLogin.js";
+import {
+  detectDefaultChannel,
+  orderChannels,
+  type RunCommand,
+} from "./defaultBrowser.js";
 
 /**
  * The real {@link BrowserLauncher}, backed by Playwright driving the user's
- * already-installed browser (Chrome/Edge), so there is no separate browser
- * download. `playwright-core` is an *optional* dependency, loaded lazily here —
- * the core engine and search path never require it.
+ * already-installed browser (their default of Chrome/Edge), so there is no
+ * separate browser download. `playwright-core` is an *optional* dependency,
+ * loaded lazily here — the core engine and search path never require it.
+ *
+ * Crucially, the `searchMyAssets` request is made via `context.request` (a
+ * Node-side HTTP client sharing the browser's cookie jar) rather than
+ * `page.evaluate`. Unity's login flow navigates the page across origins
+ * (assetstore → id.unity.com → back); an in-page evaluate would be destroyed by
+ * those navigations and could not reach the storefront origin anyway. The
+ * request API is immune to both.
  *
  * This module talks to a live browser and is therefore exercised manually
- * rather than in unit tests (it is excluded from coverage); all decision logic
- * lives in `browserLogin.ts`, which is fully tested via a mock launcher.
+ * rather than in unit tests (it is excluded from coverage); the testable
+ * decision logic lives in `browserLogin.ts` and `defaultBrowser.ts`.
  */
 
 // Minimal structural types for the slice of playwright-core we use, declared
 // locally so this module type-checks whether or not the optional dep is present.
+interface PwCookie {
+  name: string;
+  value: string;
+}
+interface PwApiResponse {
+  ok(): boolean;
+  status(): number;
+  json(): Promise<unknown>;
+}
+interface PwApiRequest {
+  post(
+    url: string,
+    opts: { headers?: Record<string, string>; data?: unknown },
+  ): Promise<PwApiResponse>;
+}
 interface PwPage {
   goto(url: string, opts?: unknown): Promise<unknown>;
-  evaluate<R, A>(fn: (arg: A) => R | Promise<R>, arg: A): Promise<R>;
 }
 interface PwContext {
   newPage(): Promise<PwPage>;
   storageState(): Promise<unknown>;
+  cookies(urls?: string | string[]): Promise<PwCookie[]>;
+  readonly request: PwApiRequest;
 }
 interface PwBrowser {
   newContext(opts?: unknown): Promise<PwContext>;
@@ -41,16 +71,19 @@ interface PlaywrightModule {
   chromium: PwBrowserType;
 }
 
-interface InPageArg {
-  readonly endpoint: string;
-  readonly query: string;
-  readonly page: number;
-  readonly pageSize: number;
-  readonly tagging: readonly string[] | null;
+export interface PlaywrightLauncherOptions {
+  /** Platform used to detect the default browser (defaults to `process.platform`). */
+  readonly platform?: NodeJS.Platform;
 }
 
-/** Browser channels tried in order: installed Chrome, Edge, then any bundled Chromium. */
-const CHANNELS: readonly (string | undefined)[] = ["chrome", "msedge", undefined];
+function nodeRunCommand(cmd: string, args: readonly string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, [...args], { windowsHide: true }, (err, stdout) => {
+      if (err) reject(err);
+      else resolve(stdout);
+    });
+  });
+}
 
 async function loadPlaywright(): Promise<PlaywrightModule> {
   // Indirect specifier so `tsc` does not require the optional dep at build time.
@@ -67,9 +100,12 @@ async function loadPlaywright(): Promise<PlaywrightModule> {
   }
 }
 
-async function launchBrowser(pw: PlaywrightModule): Promise<PwBrowser> {
+async function launchBrowser(
+  pw: PlaywrightModule,
+  channels: readonly (string | undefined)[],
+): Promise<PwBrowser> {
   let lastErr: unknown;
-  for (const channel of CHANNELS) {
+  for (const channel of channels) {
     try {
       return await pw.chromium.launch({
         headless: false,
@@ -86,119 +122,110 @@ async function launchBrowser(pw: PlaywrightModule): Promise<PwBrowser> {
   );
 }
 
-/**
- * Runs inside the browser page — must be fully self-contained (no closure over
- * module scope). Reads the `_csrf` cookie and POSTs one `searchMyAssets` page
- * with the logged-in session; a null `data.searchMyAssets` means "not signed in".
- */
-function inPageFetch(arg: InPageArg): Promise<MyAssetsPage> {
-  const dom = globalThis as unknown as {
-    document: { cookie: string };
-    fetch: (
-      url: string,
-      init: unknown,
-    ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
-  };
-
-  const cookie = dom.document.cookie
-    .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.indexOf("_csrf=") === 0);
-  const csrf = cookie
-    ? decodeURIComponent(cookie.slice("_csrf=".length))
-    : "";
-  if (!csrf) {
-    return Promise.resolve({
-      authenticated: false,
-      results: [],
-      total: null,
-      reason: "no-csrf",
-    });
+/** Read and decode the `_csrf` cookie for the storefront, if present. */
+async function readCsrf(context: PwContext): Promise<string | undefined> {
+  const cookies = await context.cookies(STORE_ORIGIN);
+  const raw = cookies.find((c) => c.name === "_csrf")?.value;
+  if (!raw) return undefined;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw; // malformed escape — use as-is
   }
-
-  return dom
-    .fetch(arg.endpoint, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "x-requested-with": "XMLHttpRequest",
-        "x-source": "storefront",
-        operations: "searchMyAssets",
-        "x-csrf-token": csrf,
-      },
-      body: JSON.stringify([
-        {
-          query: arg.query,
-          operationName: "searchMyAssets",
-          variables: {
-            page: arg.page,
-            pageSize: arg.pageSize,
-            sortBy: 7,
-            tagging: arg.tagging,
-          },
-        },
-      ]),
-    })
-    .then((res) => {
-      if (!res.ok) {
-        return {
-          authenticated: false,
-          results: [],
-          total: null,
-          reason: "http " + res.status,
-        } as MyAssetsPage;
-      }
-      return res.json().then((json) => {
-        const batch = Array.isArray(json) ? json[0] : json;
-        const node = (
-          batch as { data?: { searchMyAssets?: { results?: unknown[]; total?: number } } } | undefined
-        )?.data?.searchMyAssets;
-        if (!node) {
-          return {
-            authenticated: false,
-            results: [],
-            total: null,
-            reason: "no-data",
-          } as MyAssetsPage;
-        }
-        return {
-          authenticated: true,
-          results: node.results ?? [],
-          total: typeof node.total === "number" ? node.total : null,
-        } as MyAssetsPage;
-      });
-    });
 }
 
-export function playwrightLauncher(): BrowserLauncher {
+function interpret(json: unknown): MyAssetsPage {
+  const batch = Array.isArray(json) ? json[0] : json;
+  const node = (
+    batch as
+      | { data?: { searchMyAssets?: { results?: unknown[]; total?: number } } }
+      | undefined
+  )?.data?.searchMyAssets;
+  if (!node) {
+    return { authenticated: false, results: [], total: null, reason: "no-data" };
+  }
   return {
-    async launch(opts) {
+    authenticated: true,
+    results: node.results ?? [],
+    total: typeof node.total === "number" ? node.total : null,
+  };
+}
+
+export function playwrightLauncher(
+  opts: PlaywrightLauncherOptions = {},
+): BrowserLauncher {
+  const platform = opts.platform ?? process.platform;
+  const run: RunCommand = nodeRunCommand;
+
+  return {
+    async launch(launchOpts) {
       const pw = await loadPlaywright();
-      const browser = await launchBrowser(pw);
+      const preferred = await detectDefaultChannel(platform, run);
+      const browser = await launchBrowser(pw, orderChannels(preferred));
       const context = await browser.newContext(
-        opts.storageState !== undefined
-          ? { storageState: opts.storageState }
+        launchOpts.storageState !== undefined
+          ? { storageState: launchOpts.storageState }
           : {},
       );
+      // A visible tab the user actually logs in to.
       const page = await context.newPage();
 
       const api: LoginBrowser = {
         async goto(url: string) {
           await page.goto(url, { waitUntil: "domcontentloaded" });
         },
-        fetchMyAssetsPage(input: FetchPageInput) {
-          return page.evaluate<MyAssetsPage, InPageArg>(inPageFetch, {
-            endpoint: GRAPHQL_BATCH_URL,
-            query: SEARCH_MY_ASSETS_QUERY,
-            page: input.page,
-            pageSize: input.pageSize,
-            tagging: input.tagging,
-          });
+
+        async fetchMyAssetsPage(input: FetchPageInput) {
+          try {
+            const csrf = await readCsrf(context);
+            if (!csrf) {
+              return { authenticated: false, results: [], total: null, reason: "no-csrf" };
+            }
+            const res = await context.request.post(GRAPHQL_BATCH_URL, {
+              headers: {
+                "Content-Type": "application/json",
+                "x-requested-with": "XMLHttpRequest",
+                "x-source": "storefront",
+                operations: "searchMyAssets",
+                "x-csrf-token": csrf,
+              },
+              data: [
+                {
+                  query: SEARCH_MY_ASSETS_QUERY,
+                  operationName: "searchMyAssets",
+                  variables: {
+                    page: input.page,
+                    pageSize: input.pageSize,
+                    sortBy: 7,
+                    tagging: input.tagging,
+                  },
+                },
+              ],
+            });
+            if (!res.ok()) {
+              return {
+                authenticated: false,
+                results: [],
+                total: null,
+                reason: `http ${res.status()}`,
+              };
+            }
+            return interpret(await res.json());
+          } catch (err) {
+            // Transient (navigation, network) — let the poll loop retry.
+            return {
+              authenticated: false,
+              results: [],
+              total: null,
+              reason: (err as Error).message,
+            };
+          }
         },
+
         storageState() {
           return context.storageState();
         },
+
         async close() {
           await browser.close();
         },
