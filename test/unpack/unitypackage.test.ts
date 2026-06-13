@@ -61,7 +61,7 @@ describe("parseUnityPackageBuffer", () => {
     const result = await parseUnityPackageBuffer(wrapper);
 
     expect(result.isWrapper).toBe(true);
-    expect(result.nestedPackages.sort()).toEqual([
+    expect([...result.nestedPackages].sort()).toEqual([
       "BuiltIn_Toon Deserted Temples_6000.1.0.unitypackage",
       "URP_Toon Deserted Temples_6000.1.0.unitypackage",
     ]);
