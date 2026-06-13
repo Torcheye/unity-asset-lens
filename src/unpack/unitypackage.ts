@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { ProductFile } from "../domain/types.js";
 import { baseNameOf, bucketForPath, extOf } from "../domain/fileType.js";
+import { isWrapperByLeaves } from "../domain/wrapper.js";
 import { scanTar } from "./tarScan.js";
 
 /**
@@ -28,30 +29,6 @@ export interface ParsedPackage {
   readonly isWrapper: boolean;
   /** Base names of nested packages that were recursed into. */
   readonly nestedPackages: readonly string[];
-}
-
-const README_EXTS = new Set(["txt", "md", "pdf", "rtf", "doc", "docx"]);
-
-function isReadmeish(path: string): boolean {
-  const base = baseNameOf(path).toLowerCase();
-  if (README_EXTS.has(extOf(base))) return true;
-  return base.includes("readme") || base.startsWith("_read");
-}
-
-/** Wrapper heuristic: every file-leaf is a `.unitypackage` or a readme, and at
- * least one is a `.unitypackage` (spec §3.3). */
-function computeIsWrapper(leafPaths: readonly string[]): boolean {
-  if (leafPaths.length === 0) return false;
-  let hasPackage = false;
-  for (const p of leafPaths) {
-    if (p.toLowerCase().endsWith(".unitypackage")) {
-      hasPackage = true;
-      continue;
-    }
-    if (isReadmeish(p)) continue;
-    return false;
-  }
-  return hasPackage;
 }
 
 function toFile(fullPath: string, nestedPkg?: string): ProductFile {
@@ -100,7 +77,7 @@ async function parseSource(
     }
   }
 
-  const isWrapper = computeIsWrapper(leafPaths);
+  const isWrapper = isWrapperByLeaves(leafPaths);
 
   // Pass 2: capture only the nested-package asset blobs and recurse into them.
   if (nestedGuids.size > 0) {
