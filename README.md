@@ -1,0 +1,149 @@
+# AssetLens
+
+> Keyword search over your **entire owned Unity Asset Store library**, at the
+> individual-file level. Type *"ui click sound"* and find the exact file across
+> everything you own — including mega bundles with thousands of files — whether
+> or not it's downloaded yet.
+
+AssetLens is the **standalone Node core engine** described in
+[`unity-asset-search-spec.md`](./unity-asset-search-spec.md) (Phase 1). It builds
+one global SQLite full-text index from two sources and searches across both:
+
+- **Local** — your downloaded `.unitypackage` cache, streamed and indexed at the
+  file level (with recursive unpacking of nested render-pipeline *wrapper*
+  packages).
+- **Online** — the store's public `PreviewAssets` content tree for assets you
+  own but haven't downloaded.
+
+It indexes only **metadata and file paths** you're entitled to. It never rehosts
+or redistributes asset contents.
+
+---
+
+## Install
+
+```bash
+npm install
+npm run build      # -> dist/ (also: npm link to get the `assetlens` command)
+```
+
+Requires Node ≥ 20. Uses `better-sqlite3` (FTS5) and `tar-stream`.
+
+During development you can run the CLI without building:
+
+```bash
+npm run cli -- <command> [args]
+```
+
+## Quick start
+
+```bash
+# 1. Export your owned catalog (one-time, transparent browser snippet — see below)
+#    Produces myassets.json.
+assetlens import myassets.json
+
+# 2. Index your downloaded .unitypackage cache (auto-detected per OS)
+assetlens scan
+
+# 3. (optional) Pull file trees for owned-but-not-downloaded assets
+assetlens fetch
+
+# 4. (optional) Add category + curated "related keywords" from product pages
+assetlens enrich
+
+# 5. Search
+assetlens search ui click sound
+assetlens search "sci-fi crate" --type model --local
+```
+
+### Result actions
+
+```bash
+assetlens reveal <fileId>       # reveal the cached .unitypackage in your file manager
+assetlens open <productId>      # open the store product page
+assetlens download <productId>  # open Unity Package Manager to download it
+assetlens watch                 # auto-index packages as Unity finishes downloading them
+```
+
+`reveal`/`open`/`download` ids come from the bracketed numbers and product ids in
+`assetlens search` output.
+
+## Authentication (the only setup step)
+
+- **Catalog (`searchMyAssets`)** needs your logged-in Unity session. AssetLens
+  never handles your credentials. Instead, run the transparent console exporter
+  in your browser:
+
+  1. Log in at <https://assetstore.unity.com>.
+  2. Open DevTools → Console and paste [`scripts/export-myassets.js`](./scripts/export-myassets.js).
+  3. A `myassets.json` download starts → `assetlens import myassets.json`.
+
+- **Content (`PreviewAssets`)** needs **no login** — AssetLens fetches a `_csrf`
+  cookie anonymously. (For sites/regions that require it, you can pass a cookie
+  header to `fetch` with `--cookie`.)
+
+## How it works
+
+| Stage | Spec | Notes |
+|---|---|---|
+| Catalog import | §5.1 | Tolerant `myassets.json` parser; flags hidden (`#BIN`) assets |
+| Local scan | §3.1–3.3, §5.2/3 | Per-OS cache path; streams tar reading only `pathname` members; recurses nested `.unitypackage` wrapper blobs (tar-in-tar); incremental by mtime/size |
+| Online fetch | §3.4, §5.4 | `PreviewAssets` pagination + path reconstruction; wrappers are opaque online → `coverage = shallow` |
+| Enrichment | §3.4, §5.5 | Category + related keywords from one public product-page GET |
+| Index & search | §6, §7 | SQLite FTS5; ranking *filename > path > metadata* with a local-product boost; group by product; filters by type/local/publisher; product-level metadata hits for not-yet-indexed assets |
+| Actions | §5.7, §7 | Reveal file / open store / `com.unity3d.kharma:` download deep link + cache watcher |
+
+### Configuration
+
+- `--db <path>` / `ASSETLENS_DATA_DIR` — index database location.
+- `--cache-root <path>` / `ASSETLENS_CACHE_ROOT` — Asset Store cache override
+  (the location is user-overridable in Unity — spec §3.1).
+
+Default cache roots:
+
+| OS | Path |
+|---|---|
+| Windows | `%APPDATA%\Unity\Asset Store-5.x` |
+| macOS | `~/Library/Unity/Asset Store-5.x` |
+| Linux | `~/.local/share/unity3d/Asset Store-5.x` |
+
+## Library API
+
+```ts
+import { AssetLensEngine } from "assetlens";
+
+const engine = AssetLensEngine.open();
+engine.importCatalogJson(await fs.readFile("myassets.json", "utf8"));
+await engine.scanLocal();
+const results = engine.search("ui click sound", { typeBucket: "audio" });
+engine.close();
+```
+
+The package also exports the lower-level pieces (`parseUnityPackageFile`,
+`fetchOnlineProductTree`, `Repository`, `searchFiles`, …) — see
+[`src/index.ts`](./src/index.ts).
+
+## Limitations & notes
+
+- AssetLens uses **undocumented** store endpoints (`searchMyAssets`,
+  `PreviewAssets`) that may change without notice. The operation strings live in
+  one place — [`src/store/constants.ts`](./src/store/constants.ts). If they
+  break, re-capture them from DevTools → Network (filter `graphql/batch`) and
+  update that module and `scripts/export-myassets.js`.
+- **UPM-format** Asset Store content (stored in the global package cache) is out
+  of scope for v0 (spec §3.1).
+- Be a good citizen: AssetLens throttles online requests and caches aggressively.
+  You are responsible for complying with the
+  [Unity Asset Store Terms of Service](https://unity.com/legal/as-terms).
+
+## Development
+
+```bash
+npm test            # run the unit test suite (vitest)
+npm run test:coverage
+npm run typecheck
+```
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
