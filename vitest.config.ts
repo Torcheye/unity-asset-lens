@@ -9,7 +9,13 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html"],
       include: ["src/**/*.ts"],
-      exclude: ["src/cli/**", "src/**/*.d.ts", "src/index.ts"],
+      exclude: [
+        "src/cli/**",
+        "src/**/*.d.ts",
+        "src/index.ts",
+        // Drives a live browser via Playwright; verified manually, not in unit tests.
+        "src/auth/playwrightLauncher.ts",
+      ],
     },
   },
 });

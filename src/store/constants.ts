@@ -37,6 +37,37 @@ export const PREVIEW_ASSETS_QUERY = `query PreviewAssets($id: ID!, $page: Int) {
  */
 export const PREVIEW_ASSETS_PAGE_SIZE = 50;
 
+/**
+ * `searchMyAssets` query — the owned-library listing (spec §3.4, §5.1). Needs a
+ * logged-in session, so it is run from inside the user's authenticated browser
+ * during `assetlens login` (see `auth/`). The browser console exporter mirrors
+ * this string; keep them in sync.
+ */
+export const SEARCH_MY_ASSETS_QUERY = `query searchMyAssets($page: Int, $pageSize: Int, $sortBy: Int, $tagging: [String]) {
+  searchMyAssets(page: $page, pageSize: $pageSize, sortBy: $sortBy, tagging: $tagging) {
+    total
+    results {
+      id
+      productId
+      itemId
+      name
+      publisher { name }
+      downloadSize
+      currentVersion { name publishedDate }
+    }
+  }
+}`;
+
+/** Page size for `searchMyAssets` pagination during browser login. */
+export const SEARCH_MY_ASSETS_PAGE_SIZE = 100;
+
+/**
+ * The signed-in "My Assets" page. Navigating here forces Unity's login flow if
+ * the user is not authenticated, giving the login browser a same-origin page
+ * from which to run `searchMyAssets`.
+ */
+export const MY_ASSETS_URL = `${STORE_ORIGIN}/account/assets`;
+
 /** Build the public store product URL from a store id (spec §7 open action). */
 export function storeUrl(id: string): string {
   return `${STORE_ORIGIN}/packages/slug/${encodeURIComponent(id)}`;

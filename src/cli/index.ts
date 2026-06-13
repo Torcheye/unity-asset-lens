@@ -14,7 +14,10 @@ import { formatResults } from "./format.js";
 const HELP = `assetlens — search your owned Unity Asset Store library
 
 Usage:
-  assetlens import <myassets.json>      Import owned catalog (console export, spec §5.1)
+  assetlens login [--no-remember] [--timeout SECONDS]
+                                        Sign in via a browser window and import your owned catalog (spec §5.1)
+  assetlens logout                      Forget the saved browser login session
+  assetlens import <myassets.json>      Import owned catalog from a console export (spec §5.1)
   assetlens scan [--force] [--no-recurse]
                                         Index downloaded .unitypackage cache (spec §5.2/3)
   assetlens fetch [--cookie <hdr>] [--limit N] [--delay MS]
@@ -56,6 +59,35 @@ async function run(argv: string[]): Promise<number> {
 
   try {
     switch (command) {
+      case "login": {
+        const timeoutSec = flagInt(flags, "timeout");
+        process.stdout.write(
+          "Opening a browser window for Unity sign-in. Log in there — " +
+            "AssetLens never sees your password.\n",
+        );
+        const result = await engine.loginAndImport({
+          remember: !flagBool(flags, "no-remember"),
+          onProgress: progress,
+          ...(timeoutSec !== undefined
+            ? { loginTimeoutMs: timeoutSec * 1000 }
+            : {}),
+        });
+        process.stdout.write(
+          `Imported ${result.imported} products ` +
+            `(${result.fetched} fetched, ${result.hidden} hidden)` +
+            `${result.remembered ? "; session saved for next time" : ""}.\n`,
+        );
+        return 0;
+      }
+
+      case "logout": {
+        await engine.logout();
+        process.stdout.write(
+          `Cleared saved login session (${engine.sessionStatePath}).\n`,
+        );
+        return 0;
+      }
+
       case "import": {
         const file = positionals[0];
         if (!file) throw new Error("Usage: assetlens import <myassets.json>");

@@ -38,9 +38,9 @@ npm run cli -- <command> [args]
 ## Quick start
 
 ```bash
-# 1. Export your owned catalog (one-time, transparent browser snippet — see below)
-#    Produces myassets.json.
-assetlens import myassets.json
+# 1. Sign in and import your owned catalog. Opens a browser window at Unity's
+#    own login page; AssetLens never sees your password (see Authentication).
+assetlens login
 
 # 2. Index your downloaded .unitypackage cache (auto-detected per OS)
 assetlens scan
@@ -70,23 +70,49 @@ assetlens watch                 # auto-index packages as Unity finishes download
 
 ## Authentication (the only setup step)
 
-- **Catalog (`searchMyAssets`)** needs your logged-in Unity session. AssetLens
-  never handles your credentials. Instead, run the transparent console exporter
-  in your browser:
+Listing the catalog (`searchMyAssets`) needs your logged-in Unity session.
+**AssetLens never handles your credentials** — the password only ever goes into
+Unity's own login page. There are two ways to provide the session:
 
-  1. Log in at <https://assetstore.unity.com>.
-  2. Open DevTools → Console and paste [`scripts/export-myassets.js`](./scripts/export-myassets.js).
-  3. A `myassets.json` download starts → `assetlens import myassets.json`.
+### `assetlens login` (recommended, zero copy-paste)
 
-- **Content (`PreviewAssets`)** needs **no login** — AssetLens fetches a `_csrf`
-  cookie anonymously. (For sites/regions that require it, you can pass a cookie
-  header to `fetch` with `--cookie`.)
+```bash
+assetlens login                 # opens a browser, you log in, catalog imports automatically
+assetlens login --no-remember   # don't persist the session to disk
+assetlens logout                # forget the saved session
+```
+
+AssetLens opens a real browser window pointed at Unity's sign-in page. You log
+in there normally (SSO, 2FA, social login all work); once you're authenticated
+it runs the `searchMyAssets` query *inside that page* and imports the result —
+no DevTools, no JSON file. By default the session is remembered locally (in the
+data dir, see below) so you usually skip the login screen next time; `logout`
+clears it.
+
+This uses [Playwright](https://playwright.dev) driving your **already-installed
+Chrome or Edge** (no separate browser download). `playwright-core` is an
+*optional* dependency: install it once with `npm install playwright-core` if it
+wasn't installed automatically.
+
+### Console exporter (fallback, no extra dependency)
+
+If you'd rather not use Playwright, the transparent browser-console snippet
+still works:
+
+1. Log in at <https://assetstore.unity.com>.
+2. Open DevTools → Console and paste [`scripts/export-myassets.js`](./scripts/export-myassets.js).
+3. A `myassets.json` download starts → `assetlens import myassets.json`.
+
+Fetching public content (`PreviewAssets`) needs **no login** — AssetLens fetches
+a `_csrf` cookie anonymously. (For sites/regions that require it, you can pass a
+cookie header with `--cookie`.)
 
 ## How it works
 
 | Stage | Spec | Notes |
 |---|---|---|
-| Catalog import | §5.1 | Tolerant `myassets.json` parser; flags hidden (`#BIN`) assets |
+| Browser login | §5.1, §9 | Drives your installed Chrome/Edge to Unity's login page; runs `searchMyAssets` inside the authenticated page — no credential handling. Session persisted locally (cleared by `logout`) |
+| Catalog import | §5.1 | Tolerant `myassets.json` parser (console-export fallback); flags hidden (`#BIN`) assets |
 | Local scan | §3.1–3.3, §5.2/3 | Per-OS cache path; streams tar reading only `pathname` members; recurses nested `.unitypackage` wrapper blobs (tar-in-tar); incremental by mtime/size |
 | Online fetch | §3.4, §5.4 | `PreviewAssets` pagination + path reconstruction; wrappers are opaque online → `coverage = shallow` |
 | Enrichment | §3.4, §5.5 | Category + related keywords from one public product-page GET |
@@ -95,7 +121,8 @@ assetlens watch                 # auto-index packages as Unity finishes download
 
 ### Configuration
 
-- `--db <path>` / `ASSETLENS_DATA_DIR` — index database location.
+- `--db <path>` / `ASSETLENS_DATA_DIR` — index database location. The remembered
+  browser session (`session.json`) lives alongside it in the data dir.
 - `--cache-root <path>` / `ASSETLENS_CACHE_ROOT` — Asset Store cache override
   (the location is user-overridable in Unity — spec §3.1).
 

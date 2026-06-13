@@ -2,7 +2,28 @@
  * AssetLens — keyword search over your owned Unity Asset Store library.
  * Public engine API (spec §8 standalone core).
  */
-export { AssetLensEngine, type EngineOptions } from "./engine.js";
+export {
+  AssetLensEngine,
+  type EngineOptions,
+  type LoginImportOptions,
+  type LoginImportResult,
+} from "./engine.js";
+
+// Browser login (spec §5.1, §9)
+export {
+  runBrowserLogin,
+  type BrowserLauncher,
+  type LoginBrowser,
+  type LaunchOptions,
+  type MyAssetsPage,
+  type RunBrowserLoginOptions,
+  type BrowserLoginResult,
+} from "./auth/browserLogin.js";
+export {
+  fileSessionStore,
+  type SessionStore,
+} from "./auth/sessionStore.js";
+export { playwrightLauncher } from "./auth/playwrightLauncher.js";
 
 // Domain types
 export type {
@@ -97,6 +118,7 @@ export {
   defaultCacheRoot,
   dataDir,
   defaultDbPath,
+  defaultSessionStatePath,
   type PathEnv,
 } from "./config/paths.js";
 

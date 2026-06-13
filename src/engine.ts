@@ -7,12 +7,18 @@ import {
   liveEnv,
   resolveCacheRoot,
   defaultDbPath,
+  defaultSessionStatePath,
   type PathEnv,
 } from "./config/paths.js";
 import { openDatabase, type DB } from "./index/db.js";
 import { Repository, type IndexStats } from "./index/repository.js";
 import { search, type SearchOptions } from "./index/search.js";
-import { parseMyAssetsText } from "./catalog/parseMyAssets.js";
+import { parseMyAssets, parseMyAssetsText } from "./catalog/parseMyAssets.js";
+import {
+  runBrowserLogin,
+  type BrowserLauncher,
+} from "./auth/browserLogin.js";
+import { fileSessionStore, type SessionStore } from "./auth/sessionStore.js";
 import {
   indexLocalCache,
   indexPackage,
@@ -58,6 +64,33 @@ export interface EngineOptions {
   readonly readonly?: boolean;
 }
 
+export interface LoginImportOptions {
+  /** Persist the browser session for next time (default true). */
+  readonly remember?: boolean;
+  readonly onProgress?: (message: string) => void;
+  /** How long to wait for the user to sign in, in ms. */
+  readonly loginTimeoutMs?: number;
+  /** Poll interval while waiting for sign-in, in ms. */
+  readonly pollIntervalMs?: number;
+  /** Injectable browser launcher (defaults to the lazy Playwright driver). */
+  readonly launcher?: BrowserLauncher;
+  /** Injectable session store (defaults to the on-disk session file). */
+  readonly sessionStore?: SessionStore;
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly now?: () => number;
+}
+
+export interface LoginImportResult {
+  /** Owned products imported into the index (after de-duplication). */
+  readonly imported: number;
+  /** Raw product nodes fetched from the store. */
+  readonly fetched: number;
+  /** Hidden/archived (`#BIN`) products included. */
+  readonly hidden: number;
+  /** Whether the session was persisted for next time. */
+  readonly remembered: boolean;
+}
+
 export class AssetLensEngine {
   readonly repo: Repository;
   readonly cacheRoot: string;
@@ -98,6 +131,53 @@ export class AssetLensEngine {
     const { products, skipped } = parseMyAssetsText(text);
     const imported = this.repo.importCatalog(products, Date.now());
     return { imported, skipped };
+  }
+
+  // ---- browser login (spec §5.1, §9) ---------------------------------------
+
+  /** Path where the persisted browser session lives (for user messaging). */
+  get sessionStatePath(): string {
+    return defaultSessionStatePath(this.#env);
+  }
+
+  /**
+   * Drive a browser to Unity's sign-in page, then export the owned catalog from
+   * inside the authenticated page and import it. AssetLens never sees the
+   * password — it only reuses the resulting session. The Playwright driver is
+   * loaded lazily so the core never requires it; `launcher`/`sessionStore` are
+   * injectable for testing.
+   */
+  async loginAndImport(opts: LoginImportOptions = {}): Promise<LoginImportResult> {
+    const launcher =
+      opts.launcher ??
+      (await import("./auth/playwrightLauncher.js")).playwrightLauncher();
+    const store = opts.sessionStore ?? fileSessionStore(this.sessionStatePath);
+
+    const { products, hidden, remembered } = await runBrowserLogin(
+      launcher,
+      store,
+      {
+        remember: opts.remember ?? true,
+        ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+        ...(opts.loginTimeoutMs !== undefined
+          ? { loginTimeoutMs: opts.loginTimeoutMs }
+          : {}),
+        ...(opts.pollIntervalMs !== undefined
+          ? { pollIntervalMs: opts.pollIntervalMs }
+          : {}),
+        ...(opts.sleep ? { sleep: opts.sleep } : {}),
+        ...(opts.now ? { now: opts.now } : {}),
+      },
+    );
+
+    const { products: parsed } = parseMyAssets(products);
+    const imported = this.repo.importCatalog(parsed, Date.now());
+    return { imported, fetched: products.length, hidden, remembered };
+  }
+
+  /** Forget the persisted browser session (`assetlens logout`). */
+  async logout(store: SessionStore = fileSessionStore(this.sessionStatePath)): Promise<void> {
+    await store.clear();
   }
 
   // ---- local indexing (spec §5.2, §5.3) ------------------------------------

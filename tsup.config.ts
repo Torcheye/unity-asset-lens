@@ -11,6 +11,7 @@ export default defineConfig({
   dts: { entry: { index: "src/index.ts" } },
   clean: true,
   sourcemap: true,
-  // better-sqlite3 is a native module; never bundle it.
-  external: ["better-sqlite3"],
+  // better-sqlite3 is a native module; playwright-core is an optional, lazily
+  // loaded dependency. Never bundle either.
+  external: ["better-sqlite3", "playwright-core"],
 });

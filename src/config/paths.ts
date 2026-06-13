@@ -110,3 +110,13 @@ export function dataDir(env: PathEnv, override?: string): string {
 export function defaultDbPath(env: PathEnv, override?: string): string {
   return joinFor(env.platform, dataDir(env, override), "index.sqlite");
 }
+
+/**
+ * Default path for the persisted browser login session (Playwright
+ * `storageState`). It holds Unity session cookies — sensitive, machine-local —
+ * so it lives next to the index in the per-user data dir and is cleared by
+ * `assetlens logout`.
+ */
+export function defaultSessionStatePath(env: PathEnv, override?: string): string {
+  return joinFor(env.platform, dataDir(env, override), "session.json");
+}
