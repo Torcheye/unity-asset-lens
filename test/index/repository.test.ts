@@ -82,7 +82,7 @@ describe("Repository", () => {
       }),
       1,
     );
-    // Before enrichment, "spaceship" matches nothing.
+    // Before keywords are fetched, "spaceship" matches nothing.
     expect(searchFiles(repo.db, "spaceship")).toHaveLength(0);
 
     repo.enrichProduct(

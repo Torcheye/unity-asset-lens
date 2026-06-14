@@ -45,7 +45,7 @@ export interface CatalogProduct {
   readonly isHidden: boolean;
 }
 
-/** Product metadata enrichment from the public product-page GET (spec §3.4). */
+/** Product metadata from the public product-page GET (spec §3.4). */
 export interface ProductPageMetadata {
   readonly category?: string;
   /** Curated "related keywords" — the single best metadata field for matching. */

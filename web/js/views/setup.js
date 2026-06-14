@@ -6,7 +6,6 @@ const ACTION_LABELS = {
   import: { todo: "Sign in", running: "Signing in…", done: "Re-sign in" },
   scan: { todo: "Scan now", running: "Scanning…", done: "Re-scan" },
   fetch: { todo: "Fetch trees", running: "Fetching…", done: "Re-fetch" },
-  enrich: { todo: "Enrich", running: "Enriching…", done: "Re-run" },
 };
 
 const STATUS_LABELS = { todo: "Not started", running: "Running", done: "Done" };
@@ -192,7 +191,7 @@ function scanExtra(state) {
 const STEP_CONFIG = [
   {
     key: "import", num: 1, title: "Sign in & import", required: true, primary: true,
-    desc: ["Opens a real browser window at Unity's own sign-in page. Log in normally — SSO, 2FA and social login all work — and AssetLens reads your owned-product list directly. No DevTools, no JSON file, and your password never touches AssetLens."],
+    desc: ["Opens a real browser window at Unity's own sign-in page. Log in normally — SSO, 2FA and social login all work — and AssetLens reads your owned-product list directly, then collects each product's store-page keywords so they're searchable right away. No DevTools, no JSON file, and your password never touches AssetLens."],
     extra: importExtra,
   },
   {
@@ -203,10 +202,6 @@ const STEP_CONFIG = [
   {
     key: "fetch", num: 3, title: "Fetch online file trees", required: false, primary: false,
     desc: ["Pull file trees for owned-but-not-downloaded assets via the public preview endpoint — no login needed."],
-  },
-  {
-    key: "enrich", num: 4, title: "Enrich metadata", required: false, primary: false,
-    desc: ["Add category and curated related keywords from each product page — the best signal for keyword matching."],
   },
 ];
 

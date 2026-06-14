@@ -242,13 +242,14 @@ export class Repository {
   }
 
   /**
-   * Apply metadata enrichment (category + related keywords) from the product
-   * page (spec §3.4, §5.5), updating both the product row and its FTS rows so
-   * the new keywords become immediately searchable.
+   * Index a product's store-page **keywords** (+ category) as searchable
+   * metadata, updating both the product row and its FTS rows so the new
+   * keywords are immediately searchable. Runs as part of catalog import
+   * (spec §3.4). Never stores a product description.
    */
   enrichProduct(
     productId: string,
-    meta: { category?: string; tags?: readonly string[]; description?: string },
+    meta: { category?: string; tags?: readonly string[] },
     now: number,
   ): void {
     const tagText = meta.tags ? tagsToText(meta.tags) : undefined;
@@ -258,7 +259,6 @@ export class Repository {
           `UPDATE products SET
              category = COALESCE(@category, category),
              tags = COALESCE(@tags, tags),
-             description = COALESCE(@description, description),
              indexed_at = @indexed_at
            WHERE product_id = @product_id`,
         )
@@ -266,7 +266,6 @@ export class Repository {
           product_id: productId,
           category: meta.category ?? null,
           tags: tagText ?? null,
-          description: meta.description ?? null,
           indexed_at: now,
         });
       // Mirror onto FTS rows (skip COALESCE: FTS has no null semantics here).
@@ -336,7 +335,7 @@ export class Repository {
     return rows.map((r) => r.product_id);
   }
 
-  /** Product ids lacking related-keyword metadata (enrichment queue). */
+  /** Product ids lacking related-keyword metadata (import keyword-fetch queue). */
   listProductsToEnrich(limit?: number): string[] {
     const sql =
       "SELECT product_id FROM products WHERE tags IS NULL OR tags = ''" +
@@ -394,9 +393,9 @@ export class Repository {
   }
 
   /**
-   * Most frequent enrichment keywords across products (powers the GUI keyword
-   * cloud). Keywords are stored comma-joined in `products.tags`; they are
-   * tallied here case-insensitively, returning at most `limit` best-first.
+   * Most frequent keywords across products (powers the GUI keyword cloud).
+   * Keywords are stored comma-joined in `products.tags`; they are tallied here
+   * case-insensitively, returning at most `limit` best-first.
    */
   topKeywords(limit = 26): Array<{ keyword: string; count: number }> {
     const rows = this.#db

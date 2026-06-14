@@ -4,7 +4,7 @@
  * Design choice: `files_fts` is a *standalone* FTS5 table (not external-content)
  * that denormalises the small set of searchable product fields onto every file
  * row. This trades a little disk for simplicity and correctness — no triggers,
- * fully atomic per-product rewrites, and direct UPDATE for metadata enrichment.
+ * fully atomic per-product rewrites, and direct UPDATE for keyword indexing.
  * `product_id` is carried UNINDEXED so we can delete/update a product's rows.
  *
  * Column order in `files_fts` matters: bm25() weights are positional from

@@ -27,7 +27,6 @@ const store = createStore({
     import: { status: "todo" },
     scan: { status: "todo" },
     fetch: { status: "todo" },
-    enrich: { status: "todo" },
   },
   toast: null,
   toastVisible: false,
@@ -91,9 +90,6 @@ function deriveSteps(overview, prev) {
     next.scan = stats.files > 0
       ? { status: "done", detail: `${stats.files.toLocaleString()} files indexed across ${stats.localProducts} packages` }
       : { status: "todo" };
-  }
-  if (prev.enrich.status !== "running" && overview.keywords.length > 0) {
-    next.enrich = { status: "done", detail: `${overview.keywords.length} keywords indexed` };
   }
   return next;
 }

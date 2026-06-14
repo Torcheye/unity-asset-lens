@@ -32,7 +32,7 @@ describe("Repository overview queries", () => {
     expect(memoryRepo().typeBucketCounts()).toEqual([]);
   });
 
-  it("tallies enrichment keywords case-insensitively, best-first and capped", () => {
+  it("tallies store-page keywords case-insensitively, best-first and capped", () => {
     const repo = memoryRepo();
     repo.writeIndexedProduct(
       indexedProduct({ product: catalogProduct({ id: "1" }), tags: ["UI", "click", "Sci-Fi"], paths: ["A/a.wav"] }),

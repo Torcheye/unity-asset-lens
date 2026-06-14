@@ -18,7 +18,7 @@ function assetsFor(id: string, page: number) {
   return [];
 }
 
-/** Route the engine's network calls: CSRF GET, GraphQL POST, product-page GET. */
+/** Route the engine's network calls: CSRF GET, GraphQL POST. */
 function engineHttp() {
   return mockHttp((url, init) => {
     if (url.includes("/api/graphql/batch")) {
@@ -33,15 +33,12 @@ function engineHttp() {
       const { id, page } = sent[0]!.variables;
       return { body: [{ data: { product: { assets: assetsFor(id, page) } } }] };
     }
-    if (url.includes("/packages/slug/")) {
-      return { body: `<meta name="keywords" content="hover, sci-fi">` };
-    }
     return { status: 404 };
   });
 }
 
 describe("AssetLensEngine integration (spec Phase 1 pipeline)", () => {
-  it("imports → fetches online → enriches → searches → actions", async () => {
+  it("imports → fetches online → searches → actions", async () => {
     const { http } = engineHttp();
     const engine = AssetLensEngine.open({
       dbPath: ":memory:",
@@ -65,18 +62,12 @@ describe("AssetLensEngine integration (spec Phase 1 pipeline)", () => {
       const fetched = await engine.fetchOnline(session, {});
       expect(fetched.deepIndexed).toBe(1);
 
-      // 3. The online file is searchable.
-      let groups = engine.search("click");
+      // 3. The online file is searchable by name.
+      const groups = engine.search("click");
       expect(groups[0]!.productId).toBe("1");
       expect(groups[0]!.source).toBe("online");
 
-      // 4. Enrich adds keywords; the generic file is now found via "hover".
-      const enriched = await engine.enrich({});
-      expect(enriched.enriched).toBe(1);
-      groups = engine.search("hover");
-      expect(groups[0]!.productId).toBe("1");
-
-      // 5. Actions (with a capturing runner instead of spawning).
+      // 4. Actions (with a capturing runner instead of spawning).
       const captured: OsCommand[] = [];
       const runner = async (c: OsCommand) => {
         captured.push(c);

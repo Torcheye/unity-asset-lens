@@ -1,8 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type {
-  GroupedSearchResult,
-  ProductPageMetadata,
-} from "./domain/types.js";
+import type { GroupedSearchResult } from "./domain/types.js";
 import {
   liveEnv,
   resolveCacheRoot,
@@ -35,11 +32,7 @@ import {
   type OnlineFetchOptions,
   type OnlineFetchResult,
 } from "./online/fetchOnline.js";
-import {
-  enrichProducts,
-  type EnrichOptions,
-  type EnrichResult,
-} from "./online/enrich.js";
+import { enrichProducts, type EnrichResult } from "./online/enrich.js";
 import {
   downloadCommand,
   openCommand,
@@ -52,8 +45,9 @@ import { watchCache, type CacheWatcher } from "./watcher/cacheWatcher.js";
 
 /**
  * AssetLens engine — the standalone core (spec §8 decision). Composes catalog
- * import, local cache indexing, online content fetch, metadata enrichment,
- * search, and result actions over a single global SQLite index (spec §4).
+ * import (which also fetches store-page keywords), local cache indexing, online
+ * content fetch, search, and result actions over a single global SQLite index
+ * (spec §4).
  */
 
 export interface EngineOptions {
@@ -91,6 +85,15 @@ export interface LoginImportResult {
   readonly owned: number;
   /** Whether the session was persisted for next time. */
   readonly remembered: boolean;
+  /** Products whose store-page keywords were fetched and indexed. */
+  readonly keywords: number;
+}
+
+/** Options for the keyword fetch folded into catalog import. */
+export interface ImportOptions {
+  readonly onProgress?: (message: string) => void;
+  /** Politeness delay between product-page GETs, in ms. */
+  readonly delayMs?: number;
 }
 
 export class AssetLensEngine {
@@ -122,17 +125,34 @@ export class AssetLensEngine {
 
   // ---- catalog (spec §5.1) -------------------------------------------------
 
-  /** Import the owned-product catalog from a captured JSON file. */
+  /**
+   * Import the owned-product catalog from a captured JSON file, then fetch each
+   * product's store-page keywords so they are immediately searchable (spec §3.4).
+   */
   async importCatalogFile(
     path: string,
-  ): Promise<{ imported: number; skipped: number }> {
-    return this.importCatalogJson(await readFile(path, "utf8"));
+    opts: ImportOptions = {},
+  ): Promise<{ imported: number; skipped: number; keywords: number }> {
+    const { imported, skipped } = this.importCatalogJson(
+      await readFile(path, "utf8"),
+    );
+    const { enriched } = await this.#importKeywords(opts);
+    return { imported, skipped, keywords: enriched };
   }
 
+  /** Import the owned catalog into the index (DB-only; no network). */
   importCatalogJson(text: string): { imported: number; skipped: number } {
     const { products, skipped } = parseMyAssetsText(text);
     const imported = this.repo.importCatalog(products, Date.now());
     return { imported, skipped };
+  }
+
+  /** Fetch store-page keywords for products that lack them (part of import). */
+  #importKeywords(opts: ImportOptions = {}): Promise<EnrichResult> {
+    return enrichProducts(this.repo, this.#http, {
+      ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+      ...(opts.delayMs !== undefined ? { delayMs: opts.delayMs } : {}),
+    });
   }
 
   // ---- browser login (spec §5.1, §9) ---------------------------------------
@@ -144,7 +164,8 @@ export class AssetLensEngine {
 
   /**
    * Drive a browser to Unity's sign-in page, then export the owned catalog from
-   * inside the authenticated page and import it. AssetLens never sees the
+   * inside the authenticated page and import it — fetching each product's
+   * store-page keywords as part of the import. AssetLens never sees the
    * password — it only reuses the resulting session. The Playwright driver is
    * loaded lazily so the core never requires it; `launcher`/`sessionStore` are
    * injectable for testing.
@@ -178,7 +199,11 @@ export class AssetLensEngine {
 
     const { products: parsed } = parseMyAssets(products);
     const imported = this.repo.importCatalog(parsed, Date.now());
-    return { imported, owned: ownedCount, remembered };
+    const { enriched } = await this.#importKeywords({
+      ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+      ...(opts.delayMs !== undefined ? { delayMs: opts.delayMs } : {}),
+    });
+    return { imported, owned: ownedCount, remembered, keywords: enriched };
   }
 
   /** Forget the persisted browser session (`assetlens logout`). */
@@ -197,7 +222,7 @@ export class AssetLensEngine {
     );
   }
 
-  // ---- online content + enrichment (spec §5.4, §5.5) -----------------------
+  // ---- online content fetch (spec §5.4) ------------------------------------
 
   /** Build an anonymous CSRF session for PreviewAssets (no login). */
   async anonymousSession(): Promise<StoreSession> {
@@ -210,17 +235,6 @@ export class AssetLensEngine {
   ): Promise<OnlineFetchResult> {
     const client = createStoreClient(this.#http, session);
     return fetchOnlineProducts(this.repo, client, opts);
-  }
-
-  enrich(opts: EnrichOptions = {}): Promise<EnrichResult> {
-    return enrichProducts(this.repo, this.#http, opts);
-  }
-
-  fetchProductMetadataPreview(productId: string): Promise<ProductPageMetadata> {
-    // exposed mainly for diagnostics/tests
-    return import("./store/productPage.js").then((m) =>
-      m.fetchProductMetadata(this.#http, productId),
-    );
   }
 
   // ---- search (spec §7) ----------------------------------------------------

@@ -54,7 +54,7 @@ export const PRODUCT_OPERATION = "Product";
 /**
  * Minimal `Product` query to resolve an owned ID to catalog metadata. The
  * storefront's own query selects far more; we request only what the catalog and
- * enrichment need. Sent batched (one operation per ID) in a single request.
+ * keyword indexing need. Sent batched (one operation per ID) in a single request.
  */
 export const PRODUCT_QUERY = `query Product($id: ID!) {
   product(id: $id) {

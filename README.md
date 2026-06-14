@@ -38,8 +38,9 @@ npm run cli -- <command> [args]
 ## Quick start
 
 ```bash
-# 1. Sign in and import your owned catalog. Opens a browser window at Unity's
-#    own login page; AssetLens never sees your password (see Authentication).
+# 1. Sign in and import your owned catalog (also collects each product's
+#    store-page keywords). Opens a browser window at Unity's own login page;
+#    AssetLens never sees your password (see Authentication).
 assetlens login
 
 # 2. Index your downloaded .unitypackage cache (auto-detected per OS)
@@ -48,10 +49,7 @@ assetlens scan
 # 3. (optional) Pull file trees for owned-but-not-downloaded assets
 assetlens fetch
 
-# 4. (optional) Add category + curated "related keywords" from product pages
-assetlens enrich
-
-# 5. Search
+# 4. Search
 assetlens search ui click sound
 assetlens search "sci-fi crate" --type model --local
 ```
@@ -123,9 +121,9 @@ cookie header with `--cookie`.)
 |---|---|---|
 | Browser login | §5.1, §9 | Drives your installed default browser to Unity's login page; sniffs the owned IDs from the `CurrentUser` response, then batches `Product` queries for details — no credential handling. Session persisted locally (cleared by `logout`) |
 | Catalog import | §5.1 | Tolerant parser for a captured catalog JSON (bare array of product nodes) |
+| Store-page keywords | §3.4 | As part of import, one public product-page GET per product adds its **category + related keywords** — the best signal for keyword matching (powers the GUI keyword cloud). No description, no auth |
 | Local scan | §3.1–3.3, §5.2/3 | Per-OS cache path; streams tar reading only `pathname` members; recurses nested `.unitypackage` wrapper blobs (tar-in-tar); incremental by mtime/size |
 | Online fetch | §3.4, §5.4 | `PreviewAssets` pagination + path reconstruction; wrappers are opaque online → `coverage = shallow` |
-| Enrichment | §3.4, §5.5 | Category + related keywords from one public product-page GET |
 | Index & search | §6, §7 | SQLite FTS5; ranking *filename > path > metadata* with a local-product boost; group by product; filters by type/local/publisher; product-level metadata hits for not-yet-indexed assets |
 | Actions | §5.7, §7 | Reveal file / open store / `com.unity3d.kharma:` download deep link + cache watcher |
 

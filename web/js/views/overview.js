@@ -116,7 +116,7 @@ function keywordCloud(keywords, actions) {
     { style: { background: "#1c1c21", border: "1px solid #2a2a31", borderRadius: "10px", padding: "16px 17px" } },
     h("div", { style: { fontSize: "12.5px", fontWeight: 600, color: "#d4d4dc", marginBottom: "14px" } }, "Frequent keywords"),
     keywords.length === 0
-      ? h("div", { style: { fontSize: "12.5px", color: "#6b6b76" } }, "Run “Enrich metadata” to collect related keywords.")
+      ? h("div", { style: { fontSize: "12.5px", color: "#6b6b76" } }, "Keywords are collected from store pages when you import your catalog.")
       : h("div", { style: { display: "flex", flexWrap: "wrap", gap: "7px 13px", alignItems: "baseline" } }, ...words),
   );
 }

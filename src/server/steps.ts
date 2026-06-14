@@ -3,16 +3,16 @@ import type { AssetLensEngine } from "../engine.js";
 import { openSse } from "./http.js";
 
 /**
- * Run a setup step (login → scan → fetch → enrich, spec §5.1–5.5) and stream
- * its `onProgress` output to the browser over Server-Sent Events. Each step
- * emits `progress` events while running, then a single `done` event carrying a
+ * Run a setup step (login → scan → fetch, spec §5.1–5.4) and stream its
+ * `onProgress` output to the browser over Server-Sent Events. Each step emits
+ * `progress` events while running, then a single `done` event carrying a
  * human-readable summary, or an `error` event on failure.
  */
 
-export type StepName = "import" | "scan" | "fetch" | "enrich";
+export type StepName = "import" | "scan" | "fetch";
 
 export function isStepName(s: string): s is StepName {
-  return s === "import" || s === "scan" || s === "fetch" || s === "enrich";
+  return s === "import" || s === "scan" || s === "fetch";
 }
 
 export async function runStep(
@@ -39,9 +39,10 @@ async function execute(
 ): Promise<string> {
   switch (name) {
     case "import": {
-      const r = await engine.loginAndImport({ onProgress });
+      const r = await engine.loginAndImport({ onProgress, delayMs: 250 });
       return (
-        `${r.imported} of ${r.owned} owned products imported` +
+        `${r.imported} of ${r.owned} owned products imported · ` +
+        `keywords for ${r.keywords}` +
         (r.remembered ? " · session saved for next time" : "")
       );
     }
@@ -56,10 +57,6 @@ async function execute(
       const session = await engine.anonymousSession();
       const r = await engine.fetchOnline(session, { delayMs: 250, onProgress });
       return `${r.deepIndexed} deep-indexed · ${r.wrappers} wrappers kept shallow`;
-    }
-    case "enrich": {
-      const r = await engine.enrich({ delayMs: 250, onProgress });
-      return `${r.enriched} of ${r.attempted} products enriched`;
     }
   }
 }

@@ -16,7 +16,7 @@ describe("product-level metadata search (spec §4, §7)", () => {
     expect(groups[0]!.totalHits).toBe(0); // metadata-only, no files yet
   });
 
-  it("finds a product by enriched keywords with no files", () => {
+  it("finds a product by store-page keywords with no files", () => {
     const repo = memoryRepo();
     repo.importCatalog([catalogProduct({ id: "1", name: "Generic Bundle" })], 1);
     repo.enrichProduct("1", { tags: ["medieval", "castle"] }, 2);

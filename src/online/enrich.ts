@@ -3,9 +3,10 @@ import type { HttpClient } from "../store/http.js";
 import { fetchProductMetadata } from "../store/productPage.js";
 
 /**
- * Metadata enrichment (spec §3.4, §5.5): for products lacking keywords, GET the
- * public product page and index its **category** + **related keywords** — the
- * single best field for keyword matching. One plain GET per product, no auth.
+ * Store-page keyword fetch (spec §3.4), run as part of catalog import: for
+ * products lacking keywords, GET the public product page and index its
+ * **category** + **related keywords** — the single best field for keyword
+ * matching (powers the GUI keyword cloud). One plain GET per product, no auth.
  */
 
 export interface EnrichOptions {

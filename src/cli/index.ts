@@ -9,24 +9,23 @@ import { startGuiServer } from "../server/index.js";
 
 /**
  * AssetLens CLI (spec §5.7 / Phase 1): catalog import → local scan → online
- * fetch → enrichment → search → result actions, over the global index.
+ * fetch → search → result actions, over the global index.
  */
 
 const HELP = `assetlens — search your owned Unity Asset Store library
 
 Usage:
-  assetlens login [--no-remember] [--timeout SECONDS]
-                                        Sign in via a browser window and import your owned catalog (spec §5.1)
+  assetlens login [--no-remember] [--timeout SECONDS] [--delay MS]
+                                        Sign in via a browser, import your owned catalog + store-page keywords (spec §5.1)
   assetlens logout                      Forget the saved browser login session
-  assetlens import <file.json>          Import owned catalog from a captured JSON file (spec §5.1)
+  assetlens import <file.json> [--delay MS]
+                                        Import owned catalog + store-page keywords from a captured JSON file (spec §5.1)
   assetlens scan [--force] [--no-recurse]
                                         Index downloaded .unitypackage cache (spec §5.2/3)
   assetlens fetch [--cookie <hdr>] [--limit N] [--delay MS]
                                         Fetch online file trees via PreviewAssets (spec §5.4)
-  assetlens enrich [--limit N] [--delay MS]
-                                        Add category + related keywords (spec §5.5)
   assetlens search <query...> [--type T] [--local] [--publisher P] [--limit N] [--json]
-                                        Search files + metadata (spec §7)
+                                        Search files by name + path (spec §7)
   assetlens reveal <fileId>             Reveal a downloaded file in the file manager
   assetlens open <productId>            Open the store product page
   assetlens download <productId>        Open Unity Package Manager to download (spec §5.7)
@@ -71,12 +70,14 @@ async function run(argv: string[]): Promise<number> {
         const result = await engine.loginAndImport({
           remember: !flagBool(flags, "no-remember"),
           onProgress: progress,
+          delayMs: flagInt(flags, "delay") ?? 250,
           ...(timeoutSec !== undefined
             ? { loginTimeoutMs: timeoutSec * 1000 }
             : {}),
         });
         process.stdout.write(
-          `Imported ${result.imported} of ${result.owned} owned products` +
+          `Imported ${result.imported} of ${result.owned} owned products ` +
+            `(store-page keywords for ${result.keywords})` +
             `${result.remembered ? "; session saved for next time" : ""}.\n`,
         );
         return 0;
@@ -93,9 +94,13 @@ async function run(argv: string[]): Promise<number> {
       case "import": {
         const file = positionals[0];
         if (!file) throw new Error("Usage: assetlens import <file.json>");
-        const { imported, skipped } = await engine.importCatalogFile(file);
+        const { imported, skipped, keywords } = await engine.importCatalogFile(
+          file,
+          { onProgress: progress, delayMs: flagInt(flags, "delay") ?? 250 },
+        );
         process.stdout.write(
-          `Imported ${imported} products${skipped ? ` (skipped ${skipped} malformed)` : ""}.\n`,
+          `Imported ${imported} products${skipped ? ` (skipped ${skipped} malformed)` : ""}` +
+            `; fetched store-page keywords for ${keywords}.\n`,
         );
         return 0;
       }
@@ -130,21 +135,6 @@ async function run(argv: string[]): Promise<number> {
         process.stdout.write(
           `Online fetch: ${result.deepIndexed} deep-indexed, ${result.wrappers} wrappers ` +
             `(shallow), ${result.errors.length} errors of ${result.attempted} attempted.\n`,
-        );
-        return 0;
-      }
-
-      case "enrich": {
-        const result = await engine.enrich({
-          ...(flagInt(flags, "limit") !== undefined
-            ? { limit: flagInt(flags, "limit") }
-            : {}),
-          delayMs: flagInt(flags, "delay") ?? 250,
-          onProgress: progress,
-        });
-        process.stdout.write(
-          `Enriched ${result.enriched} of ${result.attempted} products ` +
-            `(${result.errors.length} errors).\n`,
         );
         return 0;
       }

@@ -7,6 +7,7 @@ import type {
   OwnedIdsResult,
 } from "../../src/auth/browserLogin.js";
 import type { SessionStore } from "../../src/auth/sessionStore.js";
+import { mockHttp } from "../helpers/mockHttp.js";
 
 const env: PathEnv = { platform: "linux", home: "/home/x", env: {} };
 
@@ -59,7 +60,13 @@ describe("AssetLensEngine.loginAndImport", () => {
     };
     const launcher = scriptedLauncher(["1", "2", "3"], (id) => details[id]);
     const { store, saved } = memStore();
-    const engine = AssetLensEngine.open({ dbPath: ":memory:", cacheRoot: "/tmp/none", env });
+    // Store-page keyword fetch (folded into import) hits the product page.
+    const { http } = mockHttp((url) =>
+      url.includes("/packages/slug/")
+        ? { body: `<meta name="keywords" content="space, ship">` }
+        : { status: 404 },
+    );
+    const engine = AssetLensEngine.open({ dbPath: ":memory:", cacheRoot: "/tmp/none", env, http });
 
     try {
       const result = await engine.loginAndImport({
@@ -73,11 +80,14 @@ describe("AssetLensEngine.loginAndImport", () => {
       expect(result.owned).toBe(3);
       expect(result.imported).toBe(3); // incl. the delisted id with a fallback name
       expect(result.remembered).toBe(true);
+      expect(result.keywords).toBe(3); // every product got store-page keywords
       expect(saved).toEqual([{ kind: "state" }]);
 
       expect(engine.stats().products).toBe(3);
       const groups = engine.search("Pack");
       expect(groups.map((g) => g.productId).sort()).toEqual(["1", "2"]);
+      // The imported keywords are immediately searchable.
+      expect(engine.search("ship").map((g) => g.productId).sort()).toEqual(["1", "2", "3"]);
     } finally {
       engine.close();
     }
