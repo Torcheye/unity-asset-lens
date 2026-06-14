@@ -19,13 +19,13 @@ export function Toast(state) {
       "div",
       { style: { display: "flex", alignItems: "center", gap: "9px" } },
       h("span", { style: { width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0, background: dot || "#5b8cff" } }),
-      h("span", { style: { fontSize: "13px", fontWeight: 600, color: "#ededf1" } }, title),
+      h("span", { style: { fontSize: "0.8125rem", fontWeight: 600, color: "#ededf1" } }, title),
     ),
     h(
       "div",
       {
         style: {
-          marginTop: "7px", fontFamily: MONO, fontSize: "11.5px", color: "#8f8f9b",
+          marginTop: "7px", fontFamily: MONO, fontSize: "0.7188rem", color: "#8f8f9b",
           wordBreak: "break-all", background: "#16161b", border: "1px solid #2a2a31",
           borderRadius: "6px", padding: "7px 9px",
         },

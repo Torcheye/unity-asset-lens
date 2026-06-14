@@ -28,8 +28,8 @@ function statGrid(stats) {
       h(
         "div",
         { style: { background: "#1c1c21", border: "1px solid #2a2a31", borderRadius: "10px", padding: "13px 15px" } },
-        h("div", { style: { fontSize: "22px", fontWeight: 700, color: "#ededf1", letterSpacing: "-0.5px" } }, t.value),
-        h("div", { style: { fontSize: "11.5px", color: "#83838f", marginTop: "2px" } }, t.label),
+        h("div", { style: { fontSize: "1.375rem", fontWeight: 700, color: "#ededf1", letterSpacing: "-0.5px" } }, t.value),
+        h("div", { style: { fontSize: "0.7188rem", color: "#83838f", marginTop: "2px" } }, t.label),
       ),
     ),
   );
@@ -37,7 +37,7 @@ function statGrid(stats) {
 
 function primaryActionStyle() {
   return {
-    flexShrink: 0, padding: "7px 14px", fontSize: "12.5px", fontWeight: 600,
+    flexShrink: 0, padding: "7px 14px", fontSize: "0.7813rem", fontWeight: 600,
     color: "#cdd9ff", background: "rgba(122,162,255,0.13)",
     border: "1px solid rgba(122,162,255,0.28)", borderRadius: "8px", cursor: "pointer",
   };
@@ -45,7 +45,7 @@ function primaryActionStyle() {
 
 function secondaryActionStyle() {
   return {
-    flexShrink: 0, padding: "7px 14px", fontSize: "12.5px", fontWeight: 600,
+    flexShrink: 0, padding: "7px 14px", fontSize: "0.7813rem", fontWeight: 600,
     color: "#b7b7c1", background: "transparent", border: "1px solid #33333b",
     borderRadius: "8px", cursor: "pointer",
   };
@@ -61,20 +61,20 @@ function progressBlock(step) {
         { style: { position: "relative", height: "6px", background: "#15151a", borderRadius: "4px", overflow: "hidden" } },
         h("div", { class: "al-bar-indeterminate" }),
       ),
-      h("div", { style: { marginTop: "6px", fontSize: "11.5px", color: "#7e7e8a", fontFamily: MONO } }, step.progressText || "Working…"),
+      h("div", { style: { marginTop: "6px", fontSize: "0.7188rem", color: "#7e7e8a", fontFamily: MONO } }, step.progressText || "Working…"),
     );
   }
   if (step.status === "done") {
     return h(
       "div",
-      { style: { marginTop: "12px", display: "flex", alignItems: "center", gap: "8px", fontSize: "12.5px", color: "#46d9a0", fontFamily: MONO } },
+      { style: { marginTop: "12px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.7813rem", color: "#46d9a0", fontFamily: MONO } },
       `✓ ${step.detail || "Done"}`,
     );
   }
   if (step.status === "error") {
     return h(
       "div",
-      { style: { marginTop: "12px", display: "flex", alignItems: "center", gap: "8px", fontSize: "12.5px", color: "#ff8f6b", fontFamily: MONO } },
+      { style: { marginTop: "12px", display: "flex", alignItems: "center", gap: "8px", fontSize: "0.7813rem", color: "#ff8f6b", fontFamily: MONO } },
       `! ${step.detail || "Failed"}`,
     );
   }
@@ -102,7 +102,7 @@ function stepCard(state, actions, cfg) {
           style: {
             width: "26px", height: "26px", flexShrink: 0, display: "flex",
             alignItems: "center", justifyContent: "center", borderRadius: "50%",
-            fontSize: "12.5px", fontWeight: 600, color: fg, background: bg, border: "1px solid " + border,
+            fontSize: "0.7813rem", fontWeight: 600, color: fg, background: bg, border: "1px solid " + border,
           },
         },
         String(cfg.num),
@@ -113,12 +113,12 @@ function stepCard(state, actions, cfg) {
         h(
           "div",
           { style: { display: "flex", alignItems: "center", gap: "9px", flexWrap: "wrap" } },
-          h("span", { style: { fontSize: "14.5px", fontWeight: 600, color: "#ededf1" } }, cfg.title),
+          h("span", { style: { fontSize: "0.9063rem", fontWeight: 600, color: "#ededf1" } }, cfg.title),
           h(
             "span",
             {
               style: {
-                display: "inline-block", whiteSpace: "nowrap", fontSize: "10.5px",
+                display: "inline-block", whiteSpace: "nowrap", fontSize: "0.6563rem",
                 fontWeight: 600, letterSpacing: "0.3px", color: badgeColors[0],
                 background: badgeColors[1], border: "1px solid " + badgeColors[2],
                 borderRadius: "5px", padding: "1px 7px",
@@ -128,11 +128,11 @@ function stepCard(state, actions, cfg) {
           ),
           h(
             "span",
-            { style: { fontSize: "10.5px", color: cfg.required ? "#5a5a64" : "#6a6a74", border: "1px solid #2e2e36", borderRadius: "5px", padding: "1px 6px" } },
+            { style: { fontSize: "0.6563rem", color: cfg.required ? "#5a5a64" : "#6a6a74", border: "1px solid #2e2e36", borderRadius: "5px", padding: "1px 6px" } },
             cfg.required ? "required" : "optional",
           ),
         ),
-        h("div", { style: { marginTop: "5px", fontSize: "12.5px", color: "#86868f", lineHeight: "1.55" } }, ...cfg.desc),
+        h("div", { style: { marginTop: "5px", fontSize: "0.7813rem", color: "#86868f", lineHeight: "1.55" } }, ...cfg.desc),
         cfg.extra ? cfg.extra(state, actions) : null,
       ),
       h(
@@ -153,7 +153,7 @@ function importExtra(state, actions) {
   const nodes = [
     h(
       "button",
-      { onClick: actions.toggleImportHelp, style: { marginTop: "7px", padding: 0, background: "none", border: "none", color: "#7aa2ff", fontSize: "12px", cursor: "pointer" } },
+      { onClick: actions.toggleImportHelp, style: { marginTop: "7px", padding: 0, background: "none", border: "none", color: "#7aa2ff", fontSize: "0.75rem", cursor: "pointer" } },
       state.importHelp ? "Hide details" : "How does browser sign-in work?",
     ),
   ];
@@ -161,7 +161,7 @@ function importExtra(state, actions) {
     nodes.push(
       h(
         "ol",
-        { style: { margin: "9px 0 2px", paddingLeft: "18px", fontSize: "12.5px", color: "#9a9aa4", lineHeight: "1.85" } },
+        { style: { margin: "9px 0 2px", paddingLeft: "18px", fontSize: "0.7813rem", color: "#9a9aa4", lineHeight: "1.85" } },
         h("li", {}, "AssetLens opens your default browser (Chrome or Edge) at ", mono("assetstore.unity.com")),
         h("li", {}, "You sign in there normally — SSO, 2FA, social login all work"),
         h("li", {}, "It reads your owned IDs from the same ", mono("CurrentUser"), " request the My Assets page makes"),
@@ -179,7 +179,7 @@ function scanExtra(state) {
     {
       style: {
         marginTop: "8px", display: "inline-flex", alignItems: "center", gap: "7px",
-        fontFamily: MONO, fontSize: "11.5px", color: "#8a8a96", background: "#16161b",
+        fontFamily: MONO, fontSize: "0.7188rem", color: "#8a8a96", background: "#16161b",
         border: "1px solid #242430", borderRadius: "6px", padding: "4px 9px",
       },
     },
@@ -208,17 +208,17 @@ const STEP_CONFIG = [
 export function SetupView(state, actions) {
   const openEnabled = state.steps.import.status === "done" && state.steps.scan.status === "done";
   const openStyle = openEnabled
-    ? { padding: "9px 16px", fontSize: "13px", fontWeight: 600, color: "#fff", background: "#3a63d6", border: "1px solid #3a63d6", borderRadius: "9px", cursor: "pointer", flexShrink: 0 }
-    : { padding: "9px 16px", fontSize: "13px", fontWeight: 600, color: "#5a5a64", background: "#202028", border: "1px solid #2a2a31", borderRadius: "9px", cursor: "not-allowed", flexShrink: 0 };
+    ? { padding: "9px 16px", fontSize: "0.8125rem", fontWeight: 600, color: "#fff", background: "#3a63d6", border: "1px solid #3a63d6", borderRadius: "9px", cursor: "pointer", flexShrink: 0 }
+    : { padding: "9px 16px", fontSize: "0.8125rem", fontWeight: 600, color: "#5a5a64", background: "#202028", border: "1px solid #2a2a31", borderRadius: "9px", cursor: "not-allowed", flexShrink: 0 };
 
   return h(
     "div",
     { style: { flex: "1", minHeight: 0, overflowY: "auto", padding: "28px 32px 40px" } },
     h(
       "div",
-      { style: { maxWidth: "820px" } },
-      h("h1", { style: { margin: 0, fontSize: "21px", fontWeight: 700, letterSpacing: "-0.4px", color: "#f1f1f4" } }, "Set up your library index"),
-      h("p", { style: { margin: "7px 0 0", fontSize: "13.5px", color: "#86868f", lineHeight: "1.55", maxWidth: "620px" } }, "AssetLens builds one searchable index of every file you own across the Unity Asset Store — downloaded or not — and searches paths and metadata together."),
+      { style: { width: "100%" } },
+      h("h1", { style: { margin: 0, fontSize: "1.3125rem", fontWeight: 700, letterSpacing: "-0.4px", color: "#f1f1f4" } }, "Set up your library index"),
+      h("p", { style: { margin: "7px 0 0", fontSize: "0.8438rem", color: "#86868f", lineHeight: "1.55" } }, "AssetLens builds one searchable index of every file you own across the Unity Asset Store — downloaded or not — and searches paths and metadata together."),
       statGrid(state.overview?.stats),
       h(
         "div",
@@ -237,8 +237,8 @@ export function SetupView(state, actions) {
         h(
           "div",
           {},
-          h("div", { style: { fontWeight: 600, fontSize: "14px", color: "#ededf1" } }, "Ready to search"),
-          h("div", { style: { fontSize: "12.5px", color: "#86868f", marginTop: "3px" } }, openEnabled ? "Index built — search across your whole library now." : "Finish Sign-in and Scan to build the search index."),
+          h("div", { style: { fontWeight: 600, fontSize: "0.875rem", color: "#ededf1" } }, "Ready to search"),
+          h("div", { style: { fontSize: "0.7813rem", color: "#86868f", marginTop: "3px" } }, openEnabled ? "Index built — search across your whole library now." : "Finish Sign-in and Scan to build the search index."),
         ),
         h("button", { onClick: openEnabled ? actions.goSearch : () => {}, style: openStyle }, "Open search →"),
       ),

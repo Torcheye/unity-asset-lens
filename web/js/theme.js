@@ -31,7 +31,7 @@ export function pillStyle(bucket) {
   return {
     display: "inline-block",
     fontFamily: MONO,
-    fontSize: "10px",
+    fontSize: "0.625rem",
     fontWeight: 600,
     letterSpacing: "0.3px",
     textTransform: "uppercase",
@@ -46,7 +46,7 @@ export function pillStyle(bucket) {
 export function badgeStyle(color, bg) {
   return {
     display: "inline-block",
-    fontSize: "10px",
+    fontSize: "0.625rem",
     fontWeight: 600,
     letterSpacing: "0.4px",
     textTransform: "uppercase",
@@ -65,7 +65,7 @@ export const navBase = {
   width: "100%",
   padding: "8px 9px",
   marginBottom: "3px",
-  fontSize: "13px",
+  fontSize: "0.8125rem",
   fontWeight: 500,
   borderRadius: "8px",
   border: "1px solid transparent",
@@ -84,7 +84,7 @@ export const navActive = {
 
 export const chipBase = {
   padding: "4px 10px",
-  fontSize: "12px",
+  fontSize: "0.75rem",
   fontWeight: 500,
   borderRadius: "7px",
   cursor: "pointer",

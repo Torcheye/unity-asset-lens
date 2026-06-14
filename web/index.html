@@ -10,6 +10,9 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     * { box-sizing: border-box; }
+    /* Fluid base: 1rem tracks viewport width so all rem-based type scales with the screen.
+       ~15.5px on a 1280 laptop, ~18px at 2000px, capped at 21px on ultrawide. */
+    html { font-size: clamp(15px, 0.36vw + 10.9px, 21px); }
     html, body { margin: 0; padding: 0; height: 100%; background: #0e0e10; }
     body {
       font-family: 'IBM Plex Sans', system-ui, sans-serif;
