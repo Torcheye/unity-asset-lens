@@ -1,5 +1,5 @@
 import type { HttpClient } from "./http.js";
-import { STORE_ORIGIN } from "./constants.js";
+import { GRAPHQL_BATCH_PATH, STORE_ORIGIN } from "./constants.js";
 
 /**
  * CSRF (double-submit) handling (spec §3.5).
@@ -36,19 +36,25 @@ export function findCookieValue(
 /**
  * GET the store once to obtain a `_csrf` cookie and build an anonymous session
  * usable for `PreviewAssets` (no login required).
+ *
+ * The cookie is primed against the GraphQL endpoint itself rather than the
+ * storefront homepage: as of 2026 the Next.js homepage (`GET /`) no longer
+ * issues `_csrf` — only Unity's backend/API routes do. A `GET` of the batch
+ * endpoint is answered `404` (it is POST-only) but still sets the anonymous
+ * `_csrf` cookie *without redirecting*, so we read the cookie regardless of the
+ * status code and only fail when it is genuinely absent (spec §10: undocumented
+ * endpoints can change — re-capture via the DevTools recipe if this breaks).
  */
 export async function fetchAnonymousSession(
   http: HttpClient,
   origin: string = STORE_ORIGIN,
 ): Promise<StoreSession> {
-  const res = await http(`${origin}/`, { method: "GET" });
-  if (!res.ok) {
-    throw new Error(`Failed to obtain CSRF cookie: HTTP ${res.status}`);
-  }
+  const res = await http(`${origin}${GRAPHQL_BATCH_PATH}`, { method: "GET" });
   const raw = findCookieValue(res.setCookies(), "_csrf");
   if (!raw) {
     throw new Error(
-      "Store did not set a `_csrf` cookie; the CSRF flow may have changed (spec §10).",
+      `Store did not set a \`_csrf\` cookie (HTTP ${res.status}); the CSRF flow ` +
+        "may have changed (spec §10).",
     );
   }
   return sessionFromCsrfCookie(raw);

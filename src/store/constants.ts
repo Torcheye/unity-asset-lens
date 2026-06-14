@@ -8,7 +8,9 @@
 
 export const STORE_ORIGIN = "https://assetstore.unity.com";
 
-export const GRAPHQL_BATCH_URL = `${STORE_ORIGIN}/api/graphql/batch`;
+export const GRAPHQL_BATCH_PATH = "/api/graphql/batch";
+
+export const GRAPHQL_BATCH_URL = `${STORE_ORIGIN}${GRAPHQL_BATCH_PATH}`;
 
 /** GraphQL operation names sent in the `operations` header (spec §3.4). */
 export const OPERATIONS = {

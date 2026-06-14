@@ -19,18 +19,27 @@ describe("findCookieValue", () => {
 });
 
 describe("fetchAnonymousSession", () => {
-  it("GETs the store and builds a CSRF session (spec §3.5)", async () => {
+  it("primes _csrf on the GraphQL endpoint and builds a session (spec §3.5)", async () => {
     const { http, calls } = mockHttp([
-      { setCookies: ["_csrf=tok123; Path=/; HttpOnly"] },
+      { status: 404, setCookies: ["_csrf=tok123; Path=/; HttpOnly"] },
     ]);
     const session = await fetchAnonymousSession(http, "https://store.test");
-    expect(calls[0]!.url).toBe("https://store.test/");
+    // Primed against the API endpoint itself, not the (now CSRF-less) homepage.
+    expect(calls[0]!.url).toBe("https://store.test/api/graphql/batch");
     expect(session.csrfToken).toBe("tok123");
     expect(session.cookie).toBe("_csrf=tok123");
   });
 
+  it("accepts the cookie even on the endpoint's 404 GET response", async () => {
+    const { http } = mockHttp([
+      { status: 404, setCookies: ["_csrf=fromnotfound; Path=/"] },
+    ]);
+    const session = await fetchAnonymousSession(http, "https://store.test");
+    expect(session.csrfToken).toBe("fromnotfound");
+  });
+
   it("decodes url-encoded token values", async () => {
-    const { http } = mockHttp([{ setCookies: ["_csrf=a%2Bb%3D; Path=/"] }]);
+    const { http } = mockHttp([{ status: 404, setCookies: ["_csrf=a%2Bb%3D; Path=/"] }]);
     const session = await fetchAnonymousSession(http, "https://store.test");
     expect(session.csrfToken).toBe("a+b=");
     expect(session.cookie).toBe("_csrf=a%2Bb%3D");
@@ -43,7 +52,7 @@ describe("fetchAnonymousSession", () => {
     ).rejects.toThrow(/_csrf/);
   });
 
-  it("throws on a non-ok status", async () => {
+  it("reports the status when the cookie is absent on a server error", async () => {
     const { http } = mockHttp([{ status: 503 }]);
     await expect(
       fetchAnonymousSession(http, "https://store.test"),

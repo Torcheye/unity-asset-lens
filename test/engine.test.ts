@@ -22,7 +22,12 @@ function assetsFor(id: string, page: number) {
 function engineHttp() {
   return mockHttp((url, init) => {
     if (url.includes("/api/graphql/batch")) {
-      const sent = JSON.parse(init!.body!) as Array<{
+      // CSRF priming is a bodyless GET of this same endpoint; the live store
+      // answers 404 but still sets the anonymous `_csrf` cookie (spec §10).
+      if (!init?.body) {
+        return { status: 404, setCookies: ["_csrf=tok; Path=/; HttpOnly"] };
+      }
+      const sent = JSON.parse(init.body) as Array<{
         variables: { id: string; page: number };
       }>;
       const { id, page } = sent[0]!.variables;
@@ -30,9 +35,6 @@ function engineHttp() {
     }
     if (url.includes("/packages/slug/")) {
       return { body: `<meta name="keywords" content="hover, sci-fi">` };
-    }
-    if (url.endsWith("assetstore.unity.com/")) {
-      return { setCookies: ["_csrf=tok; Path=/; HttpOnly"] };
     }
     return { status: 404 };
   });
