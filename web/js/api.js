@@ -56,7 +56,9 @@ export function runStep(name, handlers) {
   const es = new EventSource(`/api/steps/${name}`);
   const close = () => es.close();
   es.addEventListener("progress", (e) => {
-    handlers.onProgress?.(JSON.parse(e.data).message);
+    // Payload is { message, current, total } — current/total drive the bar,
+    // message is the human-readable line (older steps may omit the counts).
+    handlers.onProgress?.(JSON.parse(e.data));
   });
   es.addEventListener("account", (e) => {
     handlers.onAccount?.(JSON.parse(e.data));

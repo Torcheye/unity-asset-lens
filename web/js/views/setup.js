@@ -60,17 +60,46 @@ function disabledActionStyle() {
   };
 }
 
+function runningBar(step) {
+  const total = step.total || 0;
+  // A known total → a real percentage fill; otherwise the looping animation
+  // (used by the silent catalog-parse / sign-in phases that have no count).
+  if (total > 0) {
+    const pct = Math.max(0, Math.min(100, Math.round((step.current / total) * 100)));
+    return h(
+      "div",
+      { style: { position: "relative", height: "6px", background: "#15151a", borderRadius: "4px", overflow: "hidden" } },
+      h("div", {
+        style: {
+          position: "absolute", top: 0, left: 0, height: "100%", width: pct + "%",
+          background: "linear-gradient(90deg, #3a63d6, #5b8cff)",
+          borderRadius: "4px", transition: "width 0.2s ease",
+        },
+      }),
+    );
+  }
+  return h(
+    "div",
+    { style: { position: "relative", height: "6px", background: "#15151a", borderRadius: "4px", overflow: "hidden" } },
+    h("div", { class: "al-bar-indeterminate" }),
+  );
+}
+
+function runningLabel(step) {
+  const total = step.total || 0;
+  const base = step.progressText || "Working…";
+  if (total <= 0) return base;
+  const pct = Math.max(0, Math.min(100, Math.round((step.current / total) * 100)));
+  return `${base}  ·  ${formatInt(step.current)}/${formatInt(total)} (${pct}%)`;
+}
+
 function progressBlock(step) {
   if (step.status === "running") {
     return h(
       "div",
       { style: { marginTop: "14px" } },
-      h(
-        "div",
-        { style: { position: "relative", height: "6px", background: "#15151a", borderRadius: "4px", overflow: "hidden" } },
-        h("div", { class: "al-bar-indeterminate" }),
-      ),
-      h("div", { style: { marginTop: "6px", fontSize: "0.7188rem", color: "#7e7e8a", fontFamily: MONO } }, step.progressText || "Working…"),
+      runningBar(step),
+      h("div", { style: { marginTop: "6px", fontSize: "0.7188rem", color: "#7e7e8a", fontFamily: MONO } }, runningLabel(step)),
     );
   }
   if (step.status === "done") {

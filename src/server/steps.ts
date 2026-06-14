@@ -1,5 +1,6 @@
 import type { ServerResponse } from "node:http";
 import type { AssetLensEngine } from "../engine.js";
+import type { ProgressReporter } from "../domain/progress.js";
 import { openSse } from "./http.js";
 
 /**
@@ -21,7 +22,11 @@ export async function runStep(
   res: ServerResponse,
 ): Promise<void> {
   const emit = openSse(res);
-  const onProgress = (message: string): void => emit("progress", { message });
+  // Forward the human-readable message (what the web UI renders) plus the
+  // structured counts, so the browser can show a bar too without breaking the
+  // existing `.message`-only consumer.
+  const onProgress: ProgressReporter = (e) =>
+    emit("progress", { message: e.message, current: e.current, total: e.total });
   try {
     const detail = await execute(engine, name, onProgress, emit);
     emit("done", { detail });
@@ -35,7 +40,7 @@ export async function runStep(
 async function execute(
   engine: AssetLensEngine,
   name: StepName,
-  onProgress: (message: string) => void,
+  onProgress: ProgressReporter,
   emit: (event: string, data: unknown) => void,
 ): Promise<string> {
   switch (name) {

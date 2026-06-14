@@ -1,4 +1,5 @@
 import type { CatalogProduct, IndexedProduct } from "../domain/types.js";
+import type { ProgressReporter } from "../domain/progress.js";
 import type { Repository } from "../index/repository.js";
 import { parseUnityPackageFile } from "../unpack/unitypackage.js";
 import { storeSearchUrl, storeUrl } from "../store/constants.js";
@@ -48,7 +49,7 @@ export interface LocalIndexOptions {
   /** Re-parse even if mtime/size are unchanged. */
   readonly force?: boolean;
   readonly now?: number;
-  readonly onProgress?: (message: string) => void;
+  readonly onProgress?: ProgressReporter;
 }
 
 export interface LocalIndexResult {
@@ -91,26 +92,33 @@ export async function indexLocalCache(
 ): Promise<LocalIndexResult> {
   const recurse = opts.recurse ?? true;
   const now = opts.now ?? Date.now();
-  const log = opts.onProgress ?? (() => {});
+  const report = opts.onProgress ?? (() => {});
   const matcher = buildCatalogMatcher(catalog);
 
   const packages = await scanCache(root);
+  const total = packages.length;
   let indexed = 0;
   let skipped = 0;
   let matched = 0;
   const errors: Array<{ filePath: string; error: string }> = [];
 
-  for (const pkg of packages) {
+  // The bar advances over *every* package (including the cheap unchanged-skips),
+  // so it tracks the whole walk rather than only the re-indexed minority.
+  for (let i = 0; i < total; i++) {
+    const pkg = packages[i]!;
+    const detail = `${pkg.publisher}/${pkg.name}`;
     if (!opts.force) {
       const prev = repo.getScannedPackage(pkg.filePath);
       if (prev && prev.mtime_ms === pkg.mtimeMs && prev.size === pkg.size) {
         skipped += 1;
+        report({ phase: "scan", current: i + 1, total, message: `Skipping ${detail} (unchanged)…`, detail });
         continue;
       }
     }
     const product = matcher.match(pkg);
+    // Report before the (slow) parse so the in-flight package name is visible.
+    report({ phase: "scan", current: i + 1, total, message: `Indexing ${detail}…`, detail });
     try {
-      log(`Indexing ${pkg.publisher}/${pkg.name}…`);
       await indexPackage(repo, pkg, product, now, recurse);
       indexed += 1;
       if (product) matched += 1;

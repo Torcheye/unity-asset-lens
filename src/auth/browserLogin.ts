@@ -1,4 +1,5 @@
 import { MY_ASSETS_URL, OWNED_DETAIL_BATCH_SIZE } from "../store/constants.js";
+import type { ProgressReporter } from "../domain/progress.js";
 import type { SessionStore } from "./sessionStore.js";
 
 /**
@@ -94,7 +95,7 @@ export interface RunBrowserLoginOptions {
   readonly pollIntervalMs?: number;
   /** Page the browser opens to (default the "My Assets" page). */
   readonly entryUrl?: string;
-  readonly onProgress?: (message: string) => void;
+  readonly onProgress?: ProgressReporter;
   /** Injectable sleep (tests pass an instant resolver). */
   readonly sleep?: (ms: number) => Promise<void>;
   /** Injectable clock in ms (tests advance it deterministically). */
@@ -146,7 +147,12 @@ export async function runBrowserLogin(
   );
 
   try {
-    onProgress(`Opening a browser window at ${entryUrl} …`);
+    onProgress({
+      phase: "signin",
+      current: 0,
+      total: 0,
+      message: `Opening a browser window at ${entryUrl} …`,
+    });
     await browser.goto(entryUrl);
 
     const ids = await waitForOwnedIds(browser, {
@@ -171,17 +177,25 @@ export async function runBrowserLogin(
     // Sign-in-only callers (the GUI's standalone "Sign in" step) stop here: the
     // session is saved, and the later "Import" step fetches details separately.
     if (opts.signInOnly) {
-      onProgress(
-        `Signed in${email ? ` as ${email}` : ""}` +
+      onProgress({
+        phase: "signin",
+        current: 0,
+        total: 0,
+        message:
+          `Signed in${email ? ` as ${email}` : ""}` +
           `${remembered ? " · session saved" : ""}.`,
-      );
+      });
       return { products: [], ownedCount: ids.length, remembered, email };
     }
 
-    onProgress(
-      `Signed in${email ? ` as ${email}` : ""}. ` +
+    onProgress({
+      phase: "signin",
+      current: 0,
+      total: 0,
+      message:
+        `Signed in${email ? ` as ${email}` : ""}. ` +
         `Found ${ids.length} owned products; fetching details…`,
-    );
+    });
 
     const products: unknown[] = [];
     for (let start = 0; start < ids.length; start += batchSize) {
@@ -190,11 +204,23 @@ export async function runBrowserLogin(
         const details = await browser.fetchProductDetails(chunk);
         products.push(...details);
       } catch (err) {
-        onProgress(
-          `  ! batch ${Math.floor(start / batchSize) + 1} failed: ${(err as Error).message}`,
-        );
+        // Indeterminate status (total 0) so the renderer prints it as a
+        // persistent line rather than overwriting it with the next counter.
+        onProgress({
+          phase: "signin",
+          current: 0,
+          total: 0,
+          message: `  ! batch ${Math.floor(start / batchSize) + 1} failed: ${(err as Error).message}`,
+        });
       }
-      onProgress(`  …${Math.min(start + batchSize, ids.length)}/${ids.length}`);
+      const done = Math.min(start + batchSize, ids.length);
+      onProgress({
+        phase: "signin",
+        current: done,
+        total: ids.length,
+        message: "Fetching product details…",
+        detail: `batch ${Math.floor(start / batchSize) + 1}`,
+      });
       if (delayMs > 0 && start + batchSize < ids.length) await sleep(delayMs);
     }
 
@@ -207,7 +233,7 @@ export async function runBrowserLogin(
 interface WaitOptions {
   readonly pollIntervalMs: number;
   readonly loginTimeoutMs: number;
-  readonly onProgress: (message: string) => void;
+  readonly onProgress: ProgressReporter;
   readonly sleep: (ms: number) => Promise<void>;
   readonly now: () => number;
 }
@@ -223,9 +249,12 @@ async function waitForOwnedIds(
     const probe = await browser.getOwnedProductIds();
     if (probe.authenticated) return probe.ids;
     if (!prompted) {
-      opts.onProgress(
-        "Please sign in to Unity in the browser window — waiting…",
-      );
+      opts.onProgress({
+        phase: "signin",
+        current: 0,
+        total: 0,
+        message: "Please sign in to Unity in the browser window — waiting…",
+      });
       prompted = true;
     }
     if (opts.now() >= deadline) {

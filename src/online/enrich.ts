@@ -1,5 +1,6 @@
 import type { Repository } from "../index/repository.js";
 import type { HttpClient } from "../store/http.js";
+import type { ProgressReporter } from "../domain/progress.js";
 import { fetchProductMetadata } from "../store/productPage.js";
 
 /**
@@ -26,7 +27,7 @@ export interface EnrichOptions {
   readonly now?: number;
   /** Re-fetch every product, not just those missing keywords (refresh). */
   readonly force?: boolean;
-  readonly onProgress?: (message: string) => void;
+  readonly onProgress?: ProgressReporter;
 }
 
 export interface EnrichResult {
@@ -47,13 +48,21 @@ export async function enrichProducts(
   opts: EnrichOptions = {},
 ): Promise<EnrichResult> {
   const now = opts.now ?? Date.now();
-  const log = opts.onProgress ?? (() => {});
+  const report = opts.onProgress ?? (() => {});
   const delayMs = opts.delayMs ?? 0;
   const concurrency = Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY);
   const ids = repo.listProductsToEnrich(opts.limit, opts.force ?? false);
+  const total = ids.length;
 
   let enriched = 0;
+  let completed = 0;
   const errors: Array<{ productId: string; error: string }> = [];
+
+  // Show the counter at 0 before the first page returns (workers run in
+  // parallel, so progress lands as each *finishes*, not as it starts).
+  if (total > 0) {
+    report({ phase: "enrich", current: 0, total, message: `Enriching ${total} products…` });
+  }
 
   // Shared cursor over `ids`. JS is single-threaded, so `next++`, the counters,
   // and each synchronous `repo.enrichProduct` write never interleave between
@@ -63,7 +72,6 @@ export async function enrichProducts(
     while (next < ids.length) {
       const productId = ids[next++]!;
       try {
-        log(`Enriching ${productId}…`);
         const meta = await fetchProductMetadata(http, productId);
         if (meta.keywords.length > 0 || meta.category) {
           repo.enrichProduct(
@@ -79,6 +87,14 @@ export async function enrichProducts(
       } catch (err) {
         errors.push({ productId, error: (err as Error).message });
       }
+      completed += 1;
+      report({
+        phase: "enrich",
+        current: completed,
+        total,
+        message: `Enriching ${productId}…`,
+        detail: productId,
+      });
       if (next < ids.length) await sleep(delayMs);
     }
   }

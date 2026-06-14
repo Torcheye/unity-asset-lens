@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { GroupedSearchResult } from "./domain/types.js";
+import type { ProgressReporter } from "./domain/progress.js";
 import {
   liveEnv,
   resolveCacheRoot,
@@ -63,7 +64,7 @@ export interface EngineOptions {
 export interface LoginImportOptions {
   /** Persist the browser session for next time (default true). */
   readonly remember?: boolean;
-  readonly onProgress?: (message: string) => void;
+  readonly onProgress?: ProgressReporter;
   /**
    * Fired the instant sign-in is detected — before catalog import and keyword
    * enrichment finish — so the GUI can reflect the signed-in status right away.
@@ -114,7 +115,7 @@ export interface SessionStatus {
 
 /** Options for the keyword fetch folded into catalog import. */
 export interface ImportOptions {
-  readonly onProgress?: (message: string) => void;
+  readonly onProgress?: ProgressReporter;
   /** Politeness delay between product-page GETs, in ms. */
   readonly delayMs?: number;
   /** Max product pages fetched in parallel. */
@@ -125,7 +126,7 @@ export interface ImportOptions {
 export interface SignInOptions {
   /** Persist the browser session for next time (default true). */
   readonly remember?: boolean;
-  readonly onProgress?: (message: string) => void;
+  readonly onProgress?: ProgressReporter;
   /** Fired the instant sign-in is detected, so the GUI can update at once. */
   readonly onSignedIn?: (status: SessionStatus) => void;
   readonly loginTimeoutMs?: number;
@@ -149,7 +150,7 @@ export interface SignInResult {
 
 /** Options for the catalog import step (reuses an existing sign-in session). */
 export interface ImportLibraryOptions {
-  readonly onProgress?: (message: string) => void;
+  readonly onProgress?: ProgressReporter;
   readonly remember?: boolean;
   readonly batchSize?: number;
   readonly delayMs?: number;
@@ -235,7 +236,7 @@ export class AssetLensEngine {
       readonly limit?: number;
       readonly delayMs?: number;
       readonly concurrency?: number;
-      readonly onProgress?: (message: string) => void;
+      readonly onProgress?: ProgressReporter;
     } = {},
   ): Promise<EnrichResult> {
     if (opts.force) this.repo.clearKeywordTags();

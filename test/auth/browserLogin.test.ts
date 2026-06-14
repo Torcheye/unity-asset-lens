@@ -96,7 +96,7 @@ describe("runBrowserLogin", () => {
       batchSize: 2,
       pollIntervalMs: 5,
       loginTimeoutMs: 60_000,
-      onProgress: (m) => progress.push(m),
+      onProgress: (e) => progress.push(e.message),
       sleep: async () => {},
       now: () => 1_000, // constant clock — never times out
     });
@@ -190,7 +190,7 @@ describe("runBrowserLogin", () => {
 
     const result = await runBrowserLogin(launcher, store, {
       batchSize: 2,
-      onProgress: (m) => progress.push(m),
+      onProgress: (e) => progress.push(e.message),
       sleep: async () => {},
       now: () => 0,
     });
