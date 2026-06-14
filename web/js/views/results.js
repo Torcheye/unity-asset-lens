@@ -23,7 +23,7 @@ function actionButton(label, onClick, variant) {
   }[variant];
   return h(
     "button",
-    { onClick, style: { padding: "5px 11px", fontSize: "12px", fontWeight: variant === "store" ? 500 : 600, borderRadius: "7px", cursor: "pointer", ...styles }, hover },
+    { onClick, style: { padding: "5px 11px", fontSize: "0.75rem", fontWeight: variant === "store" ? 500 : 600, borderRadius: "7px", cursor: "pointer", ...styles }, hover },
     label,
   );
 }
@@ -32,8 +32,8 @@ function hitRow(hit, terms) {
   return h(
     "div",
     { style: { display: "flex", alignItems: "center", gap: "10px", padding: "6px 14px", borderTop: "1px solid #1f1f25" }, hover: { background: "#212128" } },
-    h("span", { style: { fontFamily: MONO, fontSize: "11px", color: "#5f5f6a", minWidth: "42px" } }, `[${hit.fileId}]`),
-    h("span", { style: { fontFamily: MONO, fontSize: "12.5px", letterSpacing: "-0.1px", flex: "1", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, ...highlightPath(hit.fullPath, terms)),
+    h("span", { style: { fontFamily: MONO, fontSize: "0.6875rem", color: "#5f5f6a", minWidth: "42px" } }, `[${hit.fileId}]`),
+    h("span", { style: { fontFamily: MONO, fontSize: "0.7813rem", letterSpacing: "-0.1px", flex: "1", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, ...highlightPath(hit.fullPath, terms)),
     h("span", { style: pillStyle(hit.typeBucket) }, hit.typeBucket),
   );
 }
@@ -61,13 +61,13 @@ function group(g, terms, actions) {
         h(
           "div",
           { style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" } },
-          h("span", { style: { fontSize: "14px", fontWeight: 600, color: "#ededf1" } }, g.productName),
+          h("span", { style: { fontSize: "0.875rem", fontWeight: 600, color: "#ededf1" } }, g.productName),
           h("span", { style: badgeStyle(sb[1], sb[2]) }, sb[0]),
           h("span", { style: badgeStyle(cb[1], cb[2]) }, cb[0]),
         ),
         h(
           "div",
-          { style: { display: "flex", alignItems: "center", gap: "7px", marginTop: "3px", fontSize: "12px", color: "#83838f" } },
+          { style: { display: "flex", alignItems: "center", gap: "7px", marginTop: "3px", fontSize: "0.75rem", color: "#83838f" } },
           h("span", {}, g.publisher),
           h("span", { style: { color: "#44444c" } }, "·"),
           h("span", {}, isMeta ? "metadata match" : `${g.totalHits} file${g.totalHits === 1 ? "" : "s"}`),
@@ -81,7 +81,7 @@ function group(g, terms, actions) {
     children.push(
       h(
         "div",
-        { style: { padding: "9px 14px", borderTop: "1px solid #232329", background: "#191920", display: "flex", gap: "9px", alignItems: "center", fontSize: "12px", color: "#8a8a96", lineHeight: "1.5" } },
+        { style: { padding: "9px 14px", borderTop: "1px solid #232329", background: "#191920", display: "flex", gap: "9px", alignItems: "center", fontSize: "0.75rem", color: "#8a8a96", lineHeight: "1.5" } },
         h("span", { style: { color: "#ffb05c", flexShrink: 0 } }, "◇"),
         g.coverage === "shallow"
           ? "Not deep-indexed yet — fetch its file tree or download to list its files."
@@ -92,7 +92,7 @@ function group(g, terms, actions) {
     const rows = shown.map((hgrp) => hitRow(hgrp, terms));
     if (moreCount > 0) {
       rows.push(
-        h("div", { style: { padding: "7px 14px", borderTop: "1px solid #1f1f25", fontSize: "12px", color: "#6b6b76", fontFamily: MONO } }, `… ${moreCount} more file${moreCount === 1 ? "" : "s"} in this package`),
+        h("div", { style: { padding: "7px 14px", borderTop: "1px solid #1f1f25", fontSize: "0.75rem", color: "#6b6b76", fontFamily: MONO } }, `… ${moreCount} more file${moreCount === 1 ? "" : "s"} in this package`),
       );
     }
     children.push(h("div", { style: { borderTop: "1px solid #232329" } }, ...rows));
@@ -112,8 +112,8 @@ export function ResultsView(state, actions) {
     return h(
       "div",
       { style: { textAlign: "center", padding: "70px 20px", color: "#7a7a85" } },
-      h("div", { style: { fontSize: "15px", color: "#c7c7d0", marginBottom: "7px" } }, `No matches for "${state.query}"`),
-      h("div", { style: { fontSize: "13px" } }, "Try fewer or broader keywords, or clear the type filter."),
+      h("div", { style: { fontSize: "0.9375rem", color: "#c7c7d0", marginBottom: "7px" } }, `No matches for "${state.query}"`),
+      h("div", { style: { fontSize: "0.8125rem" } }, "Try fewer or broader keywords, or clear the type filter."),
     );
   }
   return h("div", { style: { display: "flex", flexDirection: "column", gap: "11px" } }, ...results.groups.map((g) => group(g, terms, actions)));
