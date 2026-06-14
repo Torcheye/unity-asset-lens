@@ -266,6 +266,23 @@ export class AssetLensEngine {
     return command;
   }
 
+  /** Reveal a product's downloaded `.unitypackage` in the OS file manager. */
+  async revealProduct(
+    productId: string,
+    runner: CommandRunner = spawnRunner,
+  ): Promise<OsCommand> {
+    const product = this.repo.getProduct(productId);
+    if (!product) throw new Error(`No product with id ${productId}`);
+    if (!product.local_path) {
+      throw new Error(
+        "This product is not downloaded yet — use `download` first.",
+      );
+    }
+    const command = revealCommand(this.#env.platform, product.local_path);
+    await runner(command);
+    return command;
+  }
+
   async openStoreForProduct(
     productId: string,
     runner: CommandRunner = spawnRunner,

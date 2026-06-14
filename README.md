@@ -56,6 +56,22 @@ assetlens search ui click sound
 assetlens search "sci-fi crate" --type model --local
 ```
 
+### Web GUI
+
+Prefer a window over the terminal? Launch the local web GUI (spec §8) — it wraps
+the same engine with a browser front-end for search, the setup steps, the
+library snapshot (asset-type breakdown + keyword cloud), and result actions:
+
+```bash
+assetlens serve                 # starts the GUI and opens your browser
+assetlens serve --port 8080     # pick the port (default 4317)
+assetlens serve --no-open       # don't auto-open the browser
+```
+
+The GUI is a dependency-free static front-end served over loopback; nothing is
+sent anywhere. The same `--db` / `--cache-root` overrides apply. Embed it from
+code with `startGuiServer({ port })` — see [`src/server`](./src/server).
+
 ### Result actions
 
 ```bash

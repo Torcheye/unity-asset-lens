@@ -139,3 +139,15 @@ export {
   storeSearchUrl,
   kharmaLink,
 } from "./store/constants.js";
+
+// Local web GUI server (spec §8 local-web UI)
+export {
+  startGuiServer,
+  createGuiServer,
+  resolveWebRoot,
+  buildOverview,
+  type GuiServerOptions,
+  type GuiServerHandle,
+  type GuiServerDeps,
+  type OverviewPayload,
+} from "./server/index.js";

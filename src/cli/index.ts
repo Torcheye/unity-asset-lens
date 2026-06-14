@@ -5,6 +5,7 @@ import type { SearchOptions } from "../index/search.js";
 import { sessionFromCookieHeader } from "../store/csrf.js";
 import { parseArgs, flagStr, flagBool, flagInt } from "./args.js";
 import { formatResults } from "./format.js";
+import { startGuiServer } from "../server/index.js";
 
 /**
  * AssetLens CLI (spec §5.7 / Phase 1): catalog import → local scan → online
@@ -30,6 +31,8 @@ Usage:
   assetlens open <productId>            Open the store product page
   assetlens download <productId>        Open Unity Package Manager to download (spec §5.7)
   assetlens watch                       Auto-index newly downloaded packages
+  assetlens serve [--port N] [--host H] [--no-open]
+                                        Launch the local web GUI (spec §8 local-web UI)
   assetlens stats                       Show index statistics
   assetlens publishers                  List indexed publishers
 
@@ -212,6 +215,27 @@ async function run(argv: string[]): Promise<number> {
         return 0;
       }
 
+      case "serve":
+      case "gui": {
+        const handle = await startGuiServer({
+          engine,
+          ...(flagInt(flags, "port") !== undefined
+            ? { port: flagInt(flags, "port") }
+            : {}),
+          ...(flagStr(flags, "host") ? { host: flagStr(flags, "host") } : {}),
+          open: flagBool(flags, "open", true),
+        });
+        process.stdout.write(
+          `AssetLens GUI running at ${handle.url}\nPress Ctrl+C to stop.\n`,
+        );
+        await new Promise<void>((resolve) => {
+          process.on("SIGINT", () => {
+            void handle.close().finally(() => resolve());
+          });
+        });
+        return 0;
+      }
+
       case "stats": {
         const s = engine.stats();
         process.stdout.write(
@@ -231,7 +255,10 @@ async function run(argv: string[]): Promise<number> {
         return 1;
     }
   } finally {
-    if (command !== "watch") engine.close();
+    // `watch`/`serve`/`gui` own the engine for their whole (long-lived) run.
+    if (command !== "watch" && command !== "serve" && command !== "gui") {
+      engine.close();
+    }
   }
 }
 

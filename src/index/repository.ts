@@ -380,6 +380,42 @@ export class Repository {
     };
   }
 
+  /**
+   * Indexed-file counts grouped by type bucket, best-first (powers the GUI
+   * overview donut / asset-type breakdown — spec §7 type filters).
+   */
+  typeBucketCounts(): Array<{ bucket: string; count: number }> {
+    return this.#db
+      .prepare(
+        `SELECT type_bucket AS bucket, COUNT(*) AS count
+         FROM files GROUP BY type_bucket ORDER BY count DESC, type_bucket`,
+      )
+      .all() as Array<{ bucket: string; count: number }>;
+  }
+
+  /**
+   * Most frequent enrichment keywords across products (powers the GUI keyword
+   * cloud). Keywords are stored comma-joined in `products.tags`; they are
+   * tallied here case-insensitively, returning at most `limit` best-first.
+   */
+  topKeywords(limit = 26): Array<{ keyword: string; count: number }> {
+    const rows = this.#db
+      .prepare("SELECT tags FROM products WHERE tags IS NOT NULL AND tags <> ''")
+      .all() as Array<{ tags: string }>;
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      for (const raw of r.tags.split(",")) {
+        const kw = raw.trim().toLowerCase();
+        if (!kw) continue;
+        counts.set(kw, (counts.get(kw) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([keyword, count]) => ({ keyword, count }))
+      .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword))
+      .slice(0, Math.max(0, limit));
+  }
+
   // ---- incremental local-scan cache (spec §3.3) ----------------------------
 
   /** Look up a previously-scanned package's recorded size/mtime. */
