@@ -121,6 +121,47 @@ export interface ImportOptions {
   readonly concurrency?: number;
 }
 
+/** Options for the standalone browser sign-in step (no catalog import). */
+export interface SignInOptions {
+  /** Persist the browser session for next time (default true). */
+  readonly remember?: boolean;
+  readonly onProgress?: (message: string) => void;
+  /** Fired the instant sign-in is detected, so the GUI can update at once. */
+  readonly onSignedIn?: (status: SessionStatus) => void;
+  readonly loginTimeoutMs?: number;
+  readonly pollIntervalMs?: number;
+  readonly launcher?: BrowserLauncher;
+  readonly sessionStore?: SessionStore;
+  readonly accountStore?: AccountStore;
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly now?: () => number;
+}
+
+/** Result of the standalone sign-in step. */
+export interface SignInResult {
+  /** Number of owned product IDs discovered for the signed-in user. */
+  readonly ownedCount: number;
+  /** Whether the session was persisted for next time. */
+  readonly remembered: boolean;
+  /** Email observed for the signed-in user, or null if none surfaced. */
+  readonly email: string | null;
+}
+
+/** Options for the catalog import step (reuses an existing sign-in session). */
+export interface ImportLibraryOptions {
+  readonly onProgress?: (message: string) => void;
+  readonly remember?: boolean;
+  readonly batchSize?: number;
+  readonly delayMs?: number;
+  readonly loginTimeoutMs?: number;
+  readonly pollIntervalMs?: number;
+  readonly launcher?: BrowserLauncher;
+  readonly sessionStore?: SessionStore;
+  readonly accountStore?: AccountStore;
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly now?: () => number;
+}
+
 export class AssetLensEngine {
   readonly repo: Repository;
   readonly cacheRoot: string;
@@ -251,11 +292,7 @@ export class AssetLensEngine {
    * injectable for testing.
    */
   async loginAndImport(opts: LoginImportOptions = {}): Promise<LoginImportResult> {
-    const launcher =
-      opts.launcher ??
-      (await import("./auth/playwrightLauncher.js")).playwrightLauncher({
-        platform: this.#env.platform,
-      });
+    const launcher = await this.#resolveLauncher(opts.launcher);
     const store = opts.sessionStore ?? fileSessionStore(this.sessionStatePath);
     const accountStore =
       opts.accountStore ?? fileAccountStore(this.accountPath);
@@ -298,6 +335,84 @@ export class AssetLensEngine {
     // Account metadata is persisted at sign-in (see onSignedIn above), in
     // lock-step with the saved session that `logout` clears.
     return { imported, owned: ownedCount, remembered, keywords: enriched, email };
+  }
+
+  /** Resolve the browser launcher, loading the optional Playwright driver lazily. */
+  async #resolveLauncher(launcher?: BrowserLauncher): Promise<BrowserLauncher> {
+    return (
+      launcher ??
+      (await import("./auth/playwrightLauncher.js")).playwrightLauncher({
+        platform: this.#env.platform,
+      })
+    );
+  }
+
+  /**
+   * Sign in via the browser and persist the session — *without* importing the
+   * catalog. This is setup step 1 in the GUI (step 2, {@link importLibrary},
+   * reuses the saved session to pull the owned catalog + keywords). AssetLens
+   * never sees the password; it only reuses the resulting session. `onSignedIn`
+   * fires the instant sign-in is detected, so the GUI's status updates at once.
+   */
+  async signIn(opts: SignInOptions = {}): Promise<SignInResult> {
+    const launcher = await this.#resolveLauncher(opts.launcher);
+    const store = opts.sessionStore ?? fileSessionStore(this.sessionStatePath);
+    const accountStore =
+      opts.accountStore ?? fileAccountStore(this.accountPath);
+    const now = opts.now ?? (() => Date.now());
+
+    const { ownedCount, remembered, email } = await runBrowserLogin(
+      launcher,
+      store,
+      {
+        remember: opts.remember ?? true,
+        signInOnly: true,
+        // Persist account metadata and surface the status the moment sign-in is
+        // detected, in lock-step with the saved session that `logout` clears.
+        onSignedIn: async ({ email, ownedCount, remembered }) => {
+          const importedAt = now();
+          if (remembered) {
+            await accountStore.save({ email, ownedCount, importedAt });
+          }
+          opts.onSignedIn?.({ loggedIn: true, email, ownedCount, importedAt });
+        },
+        ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+        ...(opts.loginTimeoutMs !== undefined
+          ? { loginTimeoutMs: opts.loginTimeoutMs }
+          : {}),
+        ...(opts.pollIntervalMs !== undefined
+          ? { pollIntervalMs: opts.pollIntervalMs }
+          : {}),
+        ...(opts.sleep ? { sleep: opts.sleep } : {}),
+        ...(opts.now ? { now: opts.now } : {}),
+      },
+    );
+
+    return { ownedCount, remembered, email };
+  }
+
+  /**
+   * Import the owned catalog and its store-page keywords, reusing the session
+   * captured by {@link signIn}. This is setup step 2 in the GUI. A saved session
+   * is required (the browser re-authenticates from it without a fresh sign-in);
+   * without one this throws so the GUI can route the user back to step 1.
+   */
+  async importLibrary(opts: ImportLibraryOptions = {}): Promise<LoginImportResult> {
+    const store = opts.sessionStore ?? fileSessionStore(this.sessionStatePath);
+    if ((await store.load()) === null) {
+      throw new Error(
+        "Not signed in yet — complete the Sign in step first, then import.",
+      );
+    }
+    // With a saved session the browser re-authenticates without manual sign-in,
+    // so import is just `loginAndImport` over that existing session. Keep the
+    // wait short: a valid session authenticates near-instantly, and an expired
+    // one should surface quickly rather than block on a fresh login.
+    return this.loginAndImport({
+      ...opts,
+      sessionStore: store,
+      loginTimeoutMs: opts.loginTimeoutMs ?? 60_000,
+    });
   }
 
   /**

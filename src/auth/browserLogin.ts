@@ -77,6 +77,13 @@ export interface RunBrowserLoginOptions {
    * handler completes before import proceeds.
    */
   readonly onSignedIn?: (info: SignedInInfo) => void | Promise<void>;
+  /**
+   * Stop right after sign-in is detected and the session is persisted, without
+   * fetching any product details. Used by the GUI's standalone "Sign in" step,
+   * which is separate from the later "Import" step; the returned `products` is
+   * then empty.
+   */
+  readonly signInOnly?: boolean;
   /** `Product` operations per batched request (default {@link OWNED_DETAIL_BATCH_SIZE}). */
   readonly batchSize?: number;
   /** Delay between detail batches, in ms (default 0). */
@@ -160,6 +167,16 @@ export async function runBrowserLogin(
       remembered = true;
     }
     await opts.onSignedIn?.({ email, ownedCount: ids.length, remembered });
+
+    // Sign-in-only callers (the GUI's standalone "Sign in" step) stop here: the
+    // session is saved, and the later "Import" step fetches details separately.
+    if (opts.signInOnly) {
+      onProgress(
+        `Signed in${email ? ` as ${email}` : ""}` +
+          `${remembered ? " · session saved" : ""}.`,
+      );
+      return { products: [], ownedCount: ids.length, remembered, email };
+    }
 
     onProgress(
       `Signed in${email ? ` as ${email}` : ""}. ` +

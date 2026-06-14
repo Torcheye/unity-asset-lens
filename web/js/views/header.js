@@ -10,14 +10,13 @@ const USER_ICON = `<svg width="13" height="13" viewBox="0 0 16 16" fill="current
 
 /**
  * Saved-login indicator + Sign in / Sign out button. "Signing in…" while the
- * setup import step (which IS the sign-in flow) is running.
+ * setup sign-in step is running.
  */
 function Account(state, actions) {
   const session = state.session;
   const loggedIn = !!session?.loggedIn;
-  // Only "signing in" until sign-in lands; once logged in we flip to "Sign out"
-  // even though import/enrich may still be running in the background.
-  const signingIn = state.steps?.import?.status === "running" && !loggedIn;
+  // Only "signing in" until sign-in lands; once logged in we flip to "Sign out".
+  const signingIn = state.steps?.signin?.status === "running" && !loggedIn;
   const dot = loggedIn ? "#46d9a0" : "#6a6a74";
   const label = loggedIn
     ? session.email || "Signed in"

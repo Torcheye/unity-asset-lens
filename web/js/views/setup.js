@@ -3,7 +3,8 @@ import { MONO, stepColors } from "../theme.js";
 import { formatInt } from "../format.js";
 
 const ACTION_LABELS = {
-  import: { todo: "Sign in", running: "Signing in…", done: "Re-sign in" },
+  signin: { todo: "Sign in", running: "Signing in…", done: "Re-sign in" },
+  import: { todo: "Import", running: "Importing…", done: "Re-import" },
   scan: { todo: "Scan now", running: "Scanning…", done: "Re-scan" },
   fetch: { todo: "Fetch trees", running: "Fetching…", done: "Re-fetch" },
 };
@@ -51,6 +52,14 @@ function secondaryActionStyle() {
   };
 }
 
+function disabledActionStyle() {
+  return {
+    flexShrink: 0, padding: "7px 14px", fontSize: "0.7813rem", fontWeight: 600,
+    color: "#5a5a64", background: "#202028", border: "1px solid #2a2a31",
+    borderRadius: "8px", cursor: "not-allowed",
+  };
+}
+
 function progressBlock(step) {
   if (step.status === "running") {
     return h(
@@ -89,6 +98,14 @@ function stepCard(state, actions, cfg) {
 
   const actionLabel = ACTION_LABELS[cfg.key][status] || ACTION_LABELS[cfg.key].todo;
   const running = step.status === "running";
+  // A gated step (e.g. Import before sign-in) is shown but its action is locked.
+  const gatedOff = cfg.gate ? !cfg.gate(state) : false;
+  const disabled = running || gatedOff;
+  const actionStyle = gatedOff
+    ? disabledActionStyle()
+    : cfg.primary
+      ? primaryActionStyle()
+      : secondaryActionStyle();
 
   return h(
     "div",
@@ -137,7 +154,12 @@ function stepCard(state, actions, cfg) {
       ),
       h(
         "button",
-        { onClick: () => actions.runStep(cfg.key), disabled: running ? "" : null, style: cfg.primary ? primaryActionStyle() : secondaryActionStyle() },
+        {
+          onClick: () => { if (!disabled) actions.runStep(cfg.key); },
+          disabled: disabled ? "" : null,
+          title: gatedOff ? "Sign in first" : actionLabel,
+          style: actionStyle,
+        },
         actionLabel,
       ),
     ),
@@ -149,7 +171,7 @@ function mono(text) {
   return h("span", { style: { fontFamily: MONO, color: "#b7b7c1" } }, text);
 }
 
-function importExtra(state, actions) {
+function signInExtra(state, actions) {
   const nodes = [
     h(
       "button",
@@ -165,7 +187,7 @@ function importExtra(state, actions) {
         h("li", {}, "AssetLens opens your default browser (Chrome or Edge) at ", mono("assetstore.unity.com")),
         h("li", {}, "You sign in there normally — SSO, 2FA, social login all work"),
         h("li", {}, "It reads your owned IDs from the same ", mono("CurrentUser"), " request the My Assets page makes"),
-        h("li", {}, "Catalog imports automatically · session remembered locally (clear with ", mono("logout"), ")"),
+        h("li", {}, "Session remembered locally (clear with ", mono("logout"), ") — then run Import to pull your catalog"),
       ),
     );
   }
@@ -190,17 +212,22 @@ function scanExtra(state) {
 
 const STEP_CONFIG = [
   {
-    key: "import", num: 1, title: "Sign in & import", required: true, primary: true,
-    desc: ["Opens a real browser window at Unity's own sign-in page. Log in normally — SSO, 2FA and social login all work — and AssetLens reads your owned-product list directly, then collects each product's store-page keywords so they're searchable right away. No DevTools, no JSON file, and your password never touches AssetLens."],
-    extra: importExtra,
+    key: "signin", num: 1, title: "Sign in", required: true, primary: true,
+    desc: ["Opens a real browser window at Unity's own sign-in page. Log in normally — SSO, 2FA and social login all work — and AssetLens reuses the resulting session. No DevTools, no JSON file, and your password never touches AssetLens."],
+    extra: signInExtra,
   },
   {
-    key: "scan", num: 2, title: "Scan local cache", required: true, primary: true,
+    key: "import", num: 2, title: "Import & enrich", required: true, primary: true,
+    gate: (state) => !!state.session?.loggedIn,
+    desc: ["Reads your owned-product list and collects each product's store-page keywords so they're searchable right away. Reuses your saved sign-in — a browser window may reopen briefly to read your library."],
+  },
+  {
+    key: "scan", num: 3, title: "Scan local cache", required: true, primary: true,
     desc: ["Stream every downloaded ", mono(".unitypackage"), " and index file paths — recursing into nested render-pipeline wrappers."],
     extra: scanExtra,
   },
   {
-    key: "fetch", num: 3, title: "Fetch online file trees", required: false, primary: false,
+    key: "fetch", num: 4, title: "Fetch online file trees", required: false, primary: false,
     desc: ["Pull file trees for owned-but-not-downloaded assets via the public preview endpoint — no login needed."],
   },
 ];
@@ -238,7 +265,7 @@ export function SetupView(state, actions) {
           "div",
           {},
           h("div", { style: { fontWeight: 600, fontSize: "0.875rem", color: "#ededf1" } }, "Ready to search"),
-          h("div", { style: { fontSize: "0.7813rem", color: "#86868f", marginTop: "3px" } }, openEnabled ? "Index built — search across your whole library now." : "Finish Sign-in and Scan to build the search index."),
+          h("div", { style: { fontSize: "0.7813rem", color: "#86868f", marginTop: "3px" } }, openEnabled ? "Index built — search across your whole library now." : "Finish Import and Scan to build the search index."),
         ),
         h("button", { onClick: openEnabled ? actions.goSearch : () => {}, style: openStyle }, "Open search →"),
       ),

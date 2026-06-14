@@ -3,16 +3,16 @@ import type { AssetLensEngine } from "../engine.js";
 import { openSse } from "./http.js";
 
 /**
- * Run a setup step (login → scan → fetch, spec §5.1–5.4) and stream its
- * `onProgress` output to the browser over Server-Sent Events. Each step emits
- * `progress` events while running, then a single `done` event carrying a
+ * Run a setup step (sign in → import → scan → fetch, spec §5.1–5.4) and stream
+ * its `onProgress` output to the browser over Server-Sent Events. Each step
+ * emits `progress` events while running, then a single `done` event carrying a
  * human-readable summary, or an `error` event on failure.
  */
 
-export type StepName = "import" | "scan" | "fetch";
+export type StepName = "signin" | "import" | "scan" | "fetch";
 
 export function isStepName(s: string): s is StepName {
-  return s === "import" || s === "scan" || s === "fetch";
+  return s === "signin" || s === "import" || s === "scan" || s === "fetch";
 }
 
 export async function runStep(
@@ -39,19 +39,24 @@ async function execute(
   emit: (event: string, data: unknown) => void,
 ): Promise<string> {
   switch (name) {
-    case "import": {
-      const r = await engine.loginAndImport({
+    case "signin": {
+      const r = await engine.signIn({
         onProgress,
-        delayMs: 250,
-        // Push the signed-in status to the browser immediately, so the header
-        // updates before catalog import + keyword enrichment finish.
+        // Push the signed-in status to the browser the instant sign-in lands,
+        // so the header indicator flips before the step's `done` event arrives.
         onSignedIn: (status) => emit("account", status),
       });
       return (
         `${r.email ? `${r.email} · ` : ""}` +
-        `${r.imported} of ${r.owned} owned products imported · ` +
-        `keywords for ${r.keywords}` +
+        `${r.ownedCount} owned products found` +
         (r.remembered ? " · session saved for next time" : "")
+      );
+    }
+    case "import": {
+      const r = await engine.importLibrary({ onProgress, delayMs: 250 });
+      return (
+        `${r.imported} of ${r.owned} owned products imported · ` +
+        `keywords for ${r.keywords}`
       );
     }
     case "scan": {
