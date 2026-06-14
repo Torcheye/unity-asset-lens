@@ -56,6 +56,8 @@ export interface LocalIndexResult {
   readonly indexed: number;
   readonly skipped: number;
   readonly matched: number;
+  /** `local:` placeholder products removed as superseded duplicates. */
+  readonly pruned: number;
   readonly errors: ReadonlyArray<{ filePath: string; error: string }>;
 }
 
@@ -117,5 +119,11 @@ export async function indexLocalCache(
     }
   }
 
-  return { scanned: packages.length, indexed, skipped, matched, errors };
+  // After (re-)indexing, drop any `local:` placeholder rows whose files have
+  // been re-homed onto a real store-id product for the same asset (e.g. the
+  // catalog was imported after the first scan). Safe in every mode — see
+  // Repository.pruneSupersededLocalProducts.
+  const pruned = repo.pruneSupersededLocalProducts();
+
+  return { scanned: packages.length, indexed, skipped, matched, pruned, errors };
 }

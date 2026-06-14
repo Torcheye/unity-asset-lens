@@ -50,6 +50,7 @@ async function execute(
       const r = await engine.scanLocal({ onProgress });
       return (
         `${r.indexed} indexed · ${r.matched} matched · ` +
+        (r.pruned ? `${r.pruned} duplicates removed · ` : "") +
         `${r.scanned} packages (${r.errors.length} errors)`
       );
     }

@@ -15,6 +15,13 @@ import { storeUrl } from "./constants.js";
 
 const MAX_KEYWORDS = 40;
 
+/**
+ * Safety cap (chars) for the Related-keywords scan when the section is not
+ * followed by another `<h2>` to bound it. Comfortably larger than any observed
+ * section (~5 KB) but small enough to never run away on a malformed page.
+ */
+const RELATED_SCAN_CAP = 8000;
+
 function decodeEntities(text: string): string {
   return text
     .replace(/&amp;/g, "&")
@@ -30,22 +37,29 @@ function cleanKeyword(raw: string): string {
   return decodeEntities(raw.replace(/\s+/g, " ")).trim();
 }
 
-/** `<meta name="keywords" content="a, b, c">` → keyword list. */
-function keywordsFromMeta(html: string): string[] {
-  const m = html.match(
-    /<meta[^>]+name=["']keywords["'][^>]*content=["']([^"']*)["']/i,
-  );
-  if (!m?.[1]) return [];
-  return m[1].split(",").map(cleanKeyword).filter(Boolean);
-}
-
-/** Collect anchor text for links that point at the store search (related tags). */
-function keywordsFromSearchLinks(html: string): string[] {
+/**
+ * The product page's curated **Related keywords** — the single-word-ish tags
+ * the publisher chose (e.g. "cityscape", "lowpoly", "city builder"). This is the
+ * single best field for the keyword cloud and keyword search.
+ *
+ * They render as a list of search-link anchors (`<a href="/?q=cityscape">…</a>`)
+ * under a "Related keywords" heading. Extraction is scoped to that section
+ * (heading → the next `<h2>`) so unrelated `/?q=` links elsewhere on the page
+ * are not swept in. NOTE: the store's `<meta name="keywords">` is deliberately
+ * *not* read — Unity populates it with just "<title>,<category-path>", which is
+ * title noise plus a duplicate of the breadcrumb category. Update the heading
+ * text or anchor shape here if Unity changes the markup (spec §10).
+ */
+function keywordsFromRelated(html: string): string[] {
+  const start = html.search(/related\s+keywords/i);
+  if (start < 0) return [];
+  const rest = html.slice(start);
+  const nextH2 = rest.search(/<h2[\s>]/i);
+  const section = rest.slice(0, nextH2 > 0 ? nextH2 : RELATED_SCAN_CAP);
   const out: string[] = [];
-  const re =
-    /<a[^>]+href=["'][^"']*\/search\?[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
+  const re = /<a[^>]+href=["']\/\?q=[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
+  while ((m = re.exec(section)) !== null) {
     const text = cleanKeyword(m[1]!.replace(/<[^>]+>/g, ""));
     if (text) out.push(text);
   }
@@ -125,9 +139,8 @@ function dedupeKeywords(lists: string[][]): string[] {
 export function parseProductPage(html: string): ProductPageMetadata {
   const ld = jsonLdNodes(html);
   const keywords = dedupeKeywords([
-    keywordsFromMeta(html),
+    keywordsFromRelated(html),
     keywordsFromJsonLd(ld),
-    keywordsFromSearchLinks(html),
   ]);
   const category = categoryFromBreadcrumb(ld);
   return category !== undefined ? { category, keywords } : { keywords };

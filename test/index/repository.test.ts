@@ -28,6 +28,78 @@ describe("Repository", () => {
     expect(row.store_url).toContain("/packages/slug/1");
   });
 
+  it("listCatalogProducts excludes synthetic local: placeholders", () => {
+    const repo = memoryRepo();
+    repo.importCatalog([catalogProduct({ id: "33506", name: "RealTime Painting" })], 1);
+    repo.writeIndexedProduct(
+      indexedProduct({
+        product: catalogProduct({ id: "local:codeartistmx/realtimepainting", name: "RealTime Painting" }),
+        source: "local",
+        paths: ["RT/brush.cs"],
+      }),
+      1,
+    );
+    // Only the real store product is offered to the matcher, so a re-scan's
+    // name-only fallback stays unambiguous and can re-home the local: package.
+    const ids = repo.listCatalogProducts().map((p) => p.id);
+    expect(ids).toContain("33506");
+    expect(ids).not.toContain("local:codeartistmx/realtimepainting");
+  });
+
+  it("pruneSupersededLocalProducts removes only re-homed (unreferenced) local: rows", () => {
+    const repo = memoryRepo();
+    const path = "/cache/Pub/Cat/Thing.unitypackage";
+    repo.writeIndexedProduct(
+      indexedProduct({
+        product: catalogProduct({ id: "local:pub/thing", name: "Thing" }),
+        source: "local",
+        paths: ["T/a.cs"],
+      }),
+      1,
+    );
+    repo.recordScannedPackage(path, 1, 10, "local:pub/thing", 1);
+    // Still referenced by its package -> kept.
+    expect(repo.pruneSupersededLocalProducts()).toBe(0);
+    expect(repo.getProduct("local:pub/thing")).toBeDefined();
+
+    // Re-home the package onto a real store id -> the local: row is orphaned.
+    repo.recordScannedPackage(path, 1, 10, "140021", 2);
+    expect(repo.pruneSupersededLocalProducts()).toBe(1);
+    expect(repo.getProduct("local:pub/thing")).toBeUndefined();
+  });
+
+  it("a local scan does not clobber an existing (enriched) store category", () => {
+    const repo = memoryRepo();
+    repo.importCatalog([catalogProduct({ id: "1", name: "Rock package" })], 1);
+    // Enrichment sets the canonical store breadcrumb.
+    repo.enrichProduct("1", { category: "3D/Props/Exterior" }, 1);
+    // A later local (re-)scan carries only the mangled folder-name guess.
+    repo.writeIndexedProduct(
+      indexedProduct({
+        product: catalogProduct({ id: "1", name: "Rock package" }),
+        source: "local",
+        category: "3D ModelsPropsExterior",
+        paths: ["Rocks/rock.fbx"],
+      }),
+      2,
+    );
+    expect(repo.getProduct("1")!.category).toBe("3D/Props/Exterior");
+  });
+
+  it("a local scan still sets the category when none exists yet", () => {
+    const repo = memoryRepo();
+    repo.writeIndexedProduct(
+      indexedProduct({
+        product: catalogProduct({ id: "local:pub/thing", name: "Thing" }),
+        source: "local",
+        category: "Tools/Utilities",
+        paths: ["T/a.cs"],
+      }),
+      1,
+    );
+    expect(repo.getProduct("local:pub/thing")!.category).toBe("Tools/Utilities");
+  });
+
   it("catalog re-import preserves an existing deep index", () => {
     const repo = memoryRepo();
     repo.writeIndexedProduct(

@@ -63,7 +63,12 @@ describe("AssetLensEngine.loginAndImport", () => {
     // Store-page keyword fetch (folded into import) hits the product page.
     const { http } = mockHttp((url) =>
       url.includes("/packages/slug/")
-        ? { body: `<meta name="keywords" content="space, ship">` }
+        ? {
+            body:
+              `<h2>Related keywords</h2><div>` +
+              `<a href="/?q=space">space</a><a href="/?q=ship">ship</a>` +
+              `</div><h2>Frequently bought together</h2>`,
+          }
         : { status: 404 },
     );
     const engine = AssetLensEngine.open({ dbPath: ":memory:", cacheRoot: "/tmp/none", env, http });

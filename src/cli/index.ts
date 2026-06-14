@@ -24,6 +24,8 @@ Usage:
                                         Index downloaded .unitypackage cache (spec §5.2/3)
   assetlens fetch [--cookie <hdr>] [--limit N] [--delay MS]
                                         Fetch online file trees via PreviewAssets (spec §5.4)
+  assetlens enrich [--force] [--limit N] [--delay MS]
+                                        Fetch store-page Related keywords (--force re-pulls all; spec §3.4)
   assetlens search <query...> [--type T] [--local] [--publisher P] [--limit N] [--json]
                                         Search files by name + path (spec §7)
   assetlens reveal <fileId>             Reveal a downloaded file in the file manager
@@ -113,7 +115,8 @@ async function run(argv: string[]): Promise<number> {
         });
         process.stdout.write(
           `Local scan: ${result.indexed} indexed, ${result.skipped} unchanged, ` +
-            `${result.matched} matched to catalog, ${result.errors.length} errors ` +
+            `${result.matched} matched to catalog, ` +
+            `${result.pruned} duplicate local entries removed, ${result.errors.length} errors ` +
             `(of ${result.scanned} packages in ${engine.cacheRoot}).\n`,
         );
         for (const e of result.errors) progress(`  ! ${e.filePath}: ${e.error}`);
@@ -136,6 +139,23 @@ async function run(argv: string[]): Promise<number> {
           `Online fetch: ${result.deepIndexed} deep-indexed, ${result.wrappers} wrappers ` +
             `(shallow), ${result.errors.length} errors of ${result.attempted} attempted.\n`,
         );
+        return 0;
+      }
+
+      case "enrich": {
+        const result = await engine.enrichKeywords({
+          force: flagBool(flags, "force"),
+          ...(flagInt(flags, "limit") !== undefined
+            ? { limit: flagInt(flags, "limit") }
+            : {}),
+          delayMs: flagInt(flags, "delay") ?? 250,
+          onProgress: progress,
+        });
+        process.stdout.write(
+          `Enriched Related keywords for ${result.enriched} of ${result.attempted} products` +
+            `${result.errors.length ? `; ${result.errors.length} errors` : ""}.\n`,
+        );
+        for (const e of result.errors) progress(`  ! ${e.productId}: ${e.error}`);
         return 0;
       }
 

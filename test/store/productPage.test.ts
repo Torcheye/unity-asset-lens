@@ -5,14 +5,37 @@ import {
 } from "../../src/store/productPage.js";
 import { mockHttp } from "../helpers/mockHttp.js";
 
+/** A minimal stand-in for the store's "Related keywords" section markup. */
+function relatedSection(keywords: string[]): string {
+  const anchors = keywords
+    .map((k) => `<a href="/?q=${encodeURIComponent(k)}">${k}</a>`)
+    .join("");
+  return `<h2>Related keywords</h2><div>${anchors}</div><h2>Frequently bought together</h2>`;
+}
+
 describe("parseProductPage", () => {
-  it("extracts keywords from a <meta name=keywords> tag", () => {
-    const html = `<meta name="keywords" content="Unity HTTP request, networking plugin, REST">`;
+  it("extracts the curated Related keywords section", () => {
+    const html = relatedSection(["cityscape", "urban", "lowpoly", "city builder"]);
     expect(parseProductPage(html).keywords).toEqual([
-      "Unity HTTP request",
-      "networking plugin",
-      "REST",
+      "cityscape",
+      "urban",
+      "lowpoly",
+      "city builder",
     ]);
+  });
+
+  it("ignores /?q= links outside the Related keywords section", () => {
+    const html = `
+      <a href="/?q=publisher-tag">Some Other Link</a>
+      ${relatedSection(["road", "subway"])}
+      <a href="/?q=footer-link">Footer</a>
+    `;
+    expect(parseProductPage(html).keywords).toEqual(["road", "subway"]);
+  });
+
+  it("does NOT read <meta name=keywords> (it is just title + category)", () => {
+    const html = `<meta name="keywords" content="Low Poly Mega City,3D/Environments/Urban">`;
+    expect(parseProductPage(html).keywords).toEqual([]);
   });
 
   it("extracts category from a JSON-LD BreadcrumbList (drop root + leaf)", () => {
@@ -29,24 +52,21 @@ describe("parseProductPage", () => {
     expect(parseProductPage(html).category).toBe("Tools/Network");
   });
 
-  it("merges and de-dupes keywords from meta, JSON-LD and search links", () => {
+  it("merges and de-dupes Related keywords with JSON-LD keywords", () => {
     const ld = { "@type": "Product", keywords: ["sci-fi", "spaceship"] };
     const html = `
-      <meta name="keywords" content="sci-fi, crate">
+      ${relatedSection(["sci-fi", "crate", "Spaceship"])}
       <script type="application/ld+json">${JSON.stringify(ld)}</script>
-      <a href="/search?q=low%20poly">Low Poly</a>
-      <a href="/search?q=spaceship">Spaceship</a>
     `;
     const { keywords } = parseProductPage(html);
-    // "sci-fi" appears twice but is de-duped; "spaceship" too (case-insensitive).
     expect(keywords).toContain("sci-fi");
     expect(keywords).toContain("crate");
-    expect(keywords).toContain("Low Poly");
+    // "spaceship" appears in both sources but is de-duped case-insensitively.
     expect(keywords.filter((k) => k.toLowerCase() === "spaceship")).toHaveLength(1);
   });
 
   it("decodes HTML entities in keywords", () => {
-    const html = `<meta name="keywords" content="cars &amp; trucks, R&amp;D">`;
+    const html = relatedSection(["cars &amp; trucks", "R&amp;D"]);
     expect(parseProductPage(html).keywords).toEqual(["cars & trucks", "R&D"]);
   });
 
@@ -64,9 +84,7 @@ describe("parseProductPage", () => {
 
 describe("fetchProductMetadata", () => {
   it("GETs the product page and parses it", async () => {
-    const { http, calls } = mockHttp([
-      { body: `<meta name="keywords" content="audio, sfx">` },
-    ]);
+    const { http, calls } = mockHttp([{ body: relatedSection(["audio", "sfx"]) }]);
     const meta = await fetchProductMetadata(http, "555");
     expect(calls[0]!.url).toContain("/packages/slug/555");
     expect(meta.keywords).toEqual(["audio", "sfx"]);

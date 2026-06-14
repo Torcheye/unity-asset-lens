@@ -157,7 +157,12 @@ export class Repository {
            ON CONFLICT(product_id) DO UPDATE SET
              name = excluded.name,
              publisher = excluded.publisher,
-             category = COALESCE(excluded.category, products.category),
+             -- Keep an existing category (a canonical store breadcrumb from
+             -- enrichment, e.g. "3D/Props/Exterior") over the incoming value: a
+             -- local scan only supplies a mangled folder-name guess ("3D Models
+             -- PropsExterior"), so it must not clobber the better one. Enrichment
+             -- still upgrades it via enrichProduct's own COALESCE(@category, …).
+             category = COALESCE(products.category, excluded.category),
              description = COALESCE(excluded.description, products.description),
              tags = COALESCE(excluded.tags, products.tags),
              download_size = excluded.download_size,
@@ -300,11 +305,17 @@ export class Repository {
       | undefined;
   }
 
-  /** Reconstruct CatalogProduct rows from the index (for local matching). */
+  /**
+   * Reconstruct the real store-catalog rows from the index (for local matching).
+   * Excludes synthetic `local:` placeholders — they are not catalog entries, and
+   * including them would shadow a real product's name and make the matcher's
+   * name-only fallback ambiguous, so a re-scan could never re-home them.
+   */
   listCatalogProducts(): CatalogProduct[] {
     const rows = this.#db
       .prepare(
-        "SELECT product_id, name, publisher, download_size, is_hidden, kharma_id FROM products",
+        "SELECT product_id, name, publisher, download_size, is_hidden, kharma_id " +
+          "FROM products WHERE product_id NOT LIKE 'local:%'",
       )
       .all() as Array<{
       product_id: string;
@@ -335,15 +346,87 @@ export class Repository {
     return rows.map((r) => r.product_id);
   }
 
-  /** Product ids lacking related-keyword metadata (import keyword-fetch queue). */
-  listProductsToEnrich(limit?: number): string[] {
+  /**
+   * Product ids for the keyword-fetch queue. By default only products *lacking*
+   * keywords (the incremental import path); with `force`, every product — used
+   * by `assetlens enrich --force` to re-pull Related keywords after a parser
+   * change (existing rows would otherwise never refresh).
+   */
+  listProductsToEnrich(limit?: number, force = false): string[] {
+    const where = force ? "" : " WHERE tags IS NULL OR tags = ''";
     const sql =
-      "SELECT product_id FROM products WHERE tags IS NULL OR tags = ''" +
-      (limit ? " LIMIT ?" : "");
+      `SELECT product_id FROM products${where}` + (limit ? " LIMIT ?" : "");
     const rows = (limit
       ? this.#db.prepare(sql).all(limit)
       : this.#db.prepare(sql).all()) as { product_id: string }[];
     return rows.map((r) => r.product_id);
+  }
+
+  /**
+   * Drop all stored keyword tags (products + both FTS mirrors) ahead of a forced
+   * re-enrich, so the keyword cloud reflects *only* freshly-fetched Related
+   * keywords — no stale title/category text lingering for products that turn out
+   * to have no Related-keywords section. Category and names are untouched.
+   */
+  clearKeywordTags(): void {
+    const tx = this.#db.transaction(() => {
+      this.#db.prepare("UPDATE products SET tags = NULL").run();
+      this.#db.prepare("UPDATE files_fts SET tags = ''").run();
+      this.#db.prepare("UPDATE products_fts SET tags = ''").run();
+    });
+    tx();
+  }
+
+  /**
+   * Remove `local:` placeholder products that have been superseded.
+   *
+   * A synthetic `local:<pub>/<slug>` row is created when a cached package can't
+   * be matched to the catalog *at scan time* (e.g. `scan` ran before the owned
+   * catalog was imported). Once the catalog is present, a re-scan re-homes those
+   * files onto the real store id and repoints the package's `scanned_packages`
+   * row, leaving the old `local:` row orphaned.
+   *
+   * The precise, safe signal is **no `scanned_packages` row references it**: a
+   * `local:` product is created with such a reference and only loses it when a
+   * later scan re-homes the package elsewhere (and `writeIndexedProduct` is
+   * transactional, so the files are already safe under the new id). A genuinely
+   * local-only package keeps its reference and is never pruned — so this is safe
+   * to run after *every* scan, regardless of publisher (name-only re-homes
+   * included). Returns the number of products removed.
+   */
+  pruneSupersededLocalProducts(): number {
+    const rows = this.#db
+      .prepare("SELECT product_id FROM products WHERE product_id LIKE 'local:%'")
+      .all() as Array<{ product_id: string }>;
+    const referenced = new Set(
+      (
+        this.#db
+          .prepare(
+            "SELECT DISTINCT product_id FROM scanned_packages WHERE product_id IS NOT NULL",
+          )
+          .all() as Array<{ product_id: string }>
+      ).map((r) => r.product_id),
+    );
+
+    const superseded = rows.filter((r) => !referenced.has(r.product_id));
+    if (superseded.length === 0) return 0;
+
+    const tx = this.#db.transaction(() => {
+      const delFts = this.#db.prepare("DELETE FROM files_fts WHERE product_id = ?");
+      const delPFts = this.#db.prepare(
+        "DELETE FROM products_fts WHERE product_id = ?",
+      );
+      const delFiles = this.#db.prepare("DELETE FROM files WHERE product_id = ?");
+      const delProd = this.#db.prepare("DELETE FROM products WHERE product_id = ?");
+      for (const r of superseded) {
+        delFts.run(r.product_id);
+        delPFts.run(r.product_id);
+        delFiles.run(r.product_id);
+        delProd.run(r.product_id);
+      }
+    });
+    tx();
+    return superseded.length;
   }
 
   /** Map a stored product row back to a CatalogProduct. */

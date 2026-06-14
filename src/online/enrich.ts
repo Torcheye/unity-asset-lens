@@ -13,6 +13,8 @@ export interface EnrichOptions {
   readonly limit?: number;
   readonly delayMs?: number;
   readonly now?: number;
+  /** Re-fetch every product, not just those missing keywords (refresh). */
+  readonly force?: boolean;
   readonly onProgress?: (message: string) => void;
 }
 
@@ -33,7 +35,7 @@ export async function enrichProducts(
   const now = opts.now ?? Date.now();
   const log = opts.onProgress ?? (() => {});
   const delayMs = opts.delayMs ?? 0;
-  const ids = repo.listProductsToEnrich(opts.limit);
+  const ids = repo.listProductsToEnrich(opts.limit, opts.force ?? false);
 
   let enriched = 0;
   const errors: Array<{ productId: string; error: string }> = [];

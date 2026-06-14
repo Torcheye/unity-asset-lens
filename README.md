@@ -49,6 +49,10 @@ assetlens scan
 # 3. (optional) Pull file trees for owned-but-not-downloaded assets
 assetlens fetch
 
+# 3b. (optional) Re-pull each product's store-page Related keywords — e.g. after
+#     an upgrade changed the extractor. --force refreshes products already tagged.
+assetlens enrich --force
+
 # 4. Search
 assetlens search ui click sound
 assetlens search "sci-fi crate" --type model --local

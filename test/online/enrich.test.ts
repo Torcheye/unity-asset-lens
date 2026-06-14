@@ -4,8 +4,16 @@ import { search } from "../../src/index/search.js";
 import { catalogProduct, indexedProduct, memoryRepo } from "../helpers/db.js";
 import { mockHttp } from "../helpers/mockHttp.js";
 
+/** A minimal stand-in for the store's "Related keywords" section markup. */
+function relatedSection(keywords: string[]): string {
+  const anchors = keywords
+    .map((k) => `<a href="/?q=${encodeURIComponent(k)}">${k}</a>`)
+    .join("");
+  return `<h2>Related keywords</h2><div>${anchors}</div><h2>More</h2>`;
+}
+
 describe("enrichProducts (spec §5.5)", () => {
-  it("adds category + keywords and makes them searchable on files", async () => {
+  it("adds keywords and makes them searchable on files", async () => {
     const repo = memoryRepo();
     // Deep-indexed product whose file path is generic.
     repo.writeIndexedProduct(
@@ -18,7 +26,7 @@ describe("enrichProducts (spec §5.5)", () => {
     );
 
     const { http, calls } = mockHttp([
-      { body: `<meta name="keywords" content="spaceship, sci-fi, hover">` },
+      { body: relatedSection(["spaceship", "sci-fi", "hover"]) },
     ]);
     const result = await enrichProducts(repo, http, { now: 2 });
 
@@ -27,6 +35,22 @@ describe("enrichProducts (spec §5.5)", () => {
     // The generic .fbx is now found via the enriched keyword.
     const hits = search(repo.db, "spaceship");
     expect(hits[0]!.productId).toBe("1");
+  });
+
+  it("re-fetches already-tagged products when force is set", async () => {
+    const repo = memoryRepo();
+    repo.importCatalog([catalogProduct({ id: "1", name: "A" })], 1);
+    repo.enrichProduct("1", { tags: ["stale", "title noise"] }, 1);
+
+    const { http, calls } = mockHttp([
+      { body: relatedSection(["cityscape", "lowpoly"]) },
+    ]);
+    const result = await enrichProducts(repo, http, { now: 2, force: true });
+
+    expect(result.attempted).toBe(1);
+    expect(calls).toHaveLength(1);
+    // Fresh Related keywords are searchable; replaces the stale tags.
+    expect(search(repo.db, "cityscape").map((h) => h.productId)).toContain("1");
   });
 
   it("only targets products lacking keywords", async () => {

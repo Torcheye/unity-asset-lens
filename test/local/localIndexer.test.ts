@@ -127,6 +127,59 @@ describe("indexLocalCache (end-to-end with real .unitypackage files)", () => {
     expect(third.skipped).toBe(0);
   });
 
+  it("merges a scan-before-import local: duplicate onto its store id and prunes it", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+
+    const bytes = await buildUnityPackage([{ path: "Rocket/Models/atom.fbx" }]);
+    await writeFileAt(dir, "Axinova/3D/Atom Rocket Model.unitypackage", bytes);
+
+    const repo = memoryRepo();
+
+    // 1. First scan with NO catalog yet -> synthetic local: product.
+    const first = await indexLocalCache(repo, dir, [], { now: 1 });
+    expect(first.indexed).toBe(1);
+    expect(first.matched).toBe(0);
+    expect(first.pruned).toBe(0);
+    expect(repo.getProduct("local:axinova/atomrocketmodel")).toBeDefined();
+
+    // 2. Catalog imported later, and the product gets keywords.
+    const catalog = [
+      catalogProduct({ id: "140021", name: "Atom Rocket Model", publisher: "Axinova" }),
+    ];
+    repo.importCatalog(catalog, 2);
+    repo.enrichProduct("140021", { tags: ["rocket", "sci-fi"] }, 2);
+
+    // 3. Forced re-scan re-homes the files onto 140021 and prunes the orphan.
+    const second = await indexLocalCache(repo, dir, catalog, { now: 3, force: true });
+    expect(second.matched).toBe(1);
+    expect(second.pruned).toBe(1);
+
+    expect(repo.getProduct("local:axinova/atomrocketmodel")).toBeUndefined();
+    const merged = repo.getProduct("140021")!;
+    expect(merged.source).toBe("local"); // now linked to the download
+    expect(merged.tags).toContain("rocket"); // keywords preserved through the merge
+
+    // The file is searchable under the real store id, only once.
+    const hits = searchFiles(repo.db, "atom");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.productId).toBe("140021");
+  });
+
+  it("does not prune a local: product that is still the only copy", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+
+    const bytes = await buildUnityPackage([{ path: "Free/thing.cs" }]);
+    await writeFileAt(dir, "Indie/Tools/Freebie.unitypackage", bytes);
+
+    const repo = memoryRepo();
+    // No catalog match ever -> stays local:, must be kept (still referenced).
+    const result = await indexLocalCache(repo, dir, [], { now: 1 });
+    expect(result.pruned).toBe(0);
+    expect(repo.getProduct("local:indie/freebie")).toBeDefined();
+  });
+
   it("records a parse error without aborting the whole scan", async () => {
     const { dir, cleanup } = await makeTempDir();
     cleanups.push(cleanup);

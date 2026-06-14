@@ -155,6 +155,30 @@ export class AssetLensEngine {
     });
   }
 
+  /**
+   * Re-fetch each product's store-page **Related keywords** (spec §3.4),
+   * powering the keyword cloud. Without `force`, only products missing keywords
+   * are fetched (the same queue catalog import uses); with `force`, all stored
+   * keywords are cleared and every product is re-fetched — use this to refresh
+   * an existing index after the extractor changes.
+   */
+  async enrichKeywords(
+    opts: {
+      readonly force?: boolean;
+      readonly limit?: number;
+      readonly delayMs?: number;
+      readonly onProgress?: (message: string) => void;
+    } = {},
+  ): Promise<EnrichResult> {
+    if (opts.force) this.repo.clearKeywordTags();
+    return enrichProducts(this.repo, this.#http, {
+      ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+      ...(opts.delayMs !== undefined ? { delayMs: opts.delayMs } : {}),
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      ...(opts.force ? { force: true } : {}),
+    });
+  }
+
   // ---- browser login (spec §5.1, §9) ---------------------------------------
 
   /** Path where the persisted browser session lives (for user messaging). */
