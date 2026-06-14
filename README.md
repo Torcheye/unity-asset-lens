@@ -63,7 +63,7 @@ whenever your library changes.
 online-only, an asset-type breakdown, and a keyword cloud where any word is a
 one-click search.
 
-![Library snapshot — stat tiles, asset-type donut, and keyword cloud](docs/img/snapshot.png)
+![Library snapshot — files indexed, a local vs. online-only products breakdown, asset-type donut, and keyword cloud](docs/img/snapshot.png)
 
 **3 · Search & act** — type a query for results grouped by product (shown at the
 top of this page). Filter by type, publisher, or "downloaded only". Then, per
