@@ -12,6 +12,22 @@ export function getOverview() {
   return getJson("/api/overview");
 }
 
+/** Saved-login status: { loggedIn, email, ownedCount, importedAt }. */
+export function getSession() {
+  return getJson("/api/session");
+}
+
+/** Forget the saved login session. Returns the new (logged-out) status. */
+export async function logout() {
+  const res = await fetch("/api/logout", {
+    method: "POST",
+    headers: { accept: "application/json" },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Logout failed (${res.status})`);
+  return data;
+}
+
 export function search({ query, type, local, publisher }) {
   const params = new URLSearchParams({ q: query });
   if (type && type !== "all") params.set("type", type);
@@ -33,13 +49,17 @@ export async function runAction(kind, productId) {
 
 /**
  * Run a setup step, streaming progress over SSE. Returns a function that
- * cancels the stream. `handlers` = { onProgress, onDone, onError }.
+ * cancels the stream. `handlers` = { onProgress, onAccount, onDone, onError }.
+ * `onAccount` fires mid-stream (sign-in step) with the saved-login status.
  */
 export function runStep(name, handlers) {
   const es = new EventSource(`/api/steps/${name}`);
   const close = () => es.close();
   es.addEventListener("progress", (e) => {
     handlers.onProgress?.(JSON.parse(e.data).message);
+  });
+  es.addEventListener("account", (e) => {
+    handlers.onAccount?.(JSON.parse(e.data));
   });
   es.addEventListener("done", (e) => {
     close();

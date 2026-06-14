@@ -76,7 +76,8 @@ async function run(argv: string[]): Promise<number> {
             : {}),
         });
         process.stdout.write(
-          `Imported ${result.imported} of ${result.owned} owned products ` +
+          `${result.email ? `Signed in as ${result.email}. ` : ""}` +
+            `Imported ${result.imported} of ${result.owned} owned products ` +
             `(store-page keywords for ${result.keywords})` +
             `${result.remembered ? "; session saved for next time" : ""}.\n`,
         );

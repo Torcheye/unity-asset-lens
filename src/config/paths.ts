@@ -120,3 +120,13 @@ export function defaultDbPath(env: PathEnv, override?: string): string {
 export function defaultSessionStatePath(env: PathEnv, override?: string): string {
   return joinFor(env.platform, dataDir(env, override), "session.json");
 }
+
+/**
+ * Default path for the persisted account metadata (the signed-in email, owned
+ * count and last-import time). Unlike the session blob this is non-sensitive
+ * display data, but it shares the session's lifecycle: it is written on login
+ * and removed by `assetlens logout`, so it lives beside the session file.
+ */
+export function defaultAccountPath(env: PathEnv, override?: string): string {
+  return joinFor(env.platform, dataDir(env, override), "account.json");
+}

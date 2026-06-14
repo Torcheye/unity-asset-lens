@@ -14,6 +14,7 @@ const DEBOUNCE_MS = 180;
 const store = createStore({
   view: "setup",
   overview: null,
+  session: null,
   query: "",
   type: "all",
   localOnly: false,
@@ -108,6 +109,13 @@ function loadOverview(navigateIfReady) {
     .catch((err) => setState({ searchError: `Could not reach the engine: ${err.message}` }));
 }
 
+function loadSession() {
+  return api
+    .getSession()
+    .then((session) => setState({ session }))
+    .catch(() => {}); // status is a non-critical adornment; ignore transient errors
+}
+
 // ── actions ───────────────────────────────────────────────────────────────────
 function focusSearch() {
   const el = document.getElementById("al-search");
@@ -121,6 +129,21 @@ const actions = {
   },
   goSetup() {
     setState({ view: "setup" });
+  },
+  // Sign in lives in the setup view's import step (it streams browser
+  // progress); the header button routes there and kicks it off.
+  login() {
+    setState({ view: "setup" });
+    actions.runStep("import");
+  },
+  async logout() {
+    try {
+      const session = await api.logout();
+      setState({ session });
+      showToast("Signed out", "Saved login session cleared", "#ff8f6b");
+    } catch (err) {
+      showToast("Couldn't sign out", err.message, "#ff8f6b");
+    }
   },
   onQueryInput(e) {
     setState({ query: e.target.value });
@@ -180,9 +203,12 @@ const actions = {
     setStep(name, { status: "running", progressText: "Starting…" });
     api.runStep(name, {
       onProgress: (message) => setStep(name, { status: "running", progressText: message }),
+      // Sign-in completes well before import/enrich finish — reflect it at once.
+      onAccount: (session) => setState({ session }),
       onDone: (detail) => {
         setStep(name, { status: "done", detail });
         void loadOverview(false);
+        if (name === "import") void loadSession();
       },
       onError: (message) => setStep(name, { status: "error", detail: message }),
     });
@@ -198,7 +224,7 @@ function App(state) {
   return h(
     "div",
     { style: { display: "flex", flexDirection: "column", height: "100vh", width: "100vw", background: "#161619", color: "#e7e7ea", fontSize: "13px", overflow: "hidden" } },
-    Header(state),
+    Header(state, actions),
     h(
       "div",
       { style: { display: "flex", flex: "1", minHeight: 0 } },
@@ -216,3 +242,4 @@ function App(state) {
 store.subscribe((state) => mount(root, App(state)));
 mount(root, App(getState()));
 void loadOverview(true);
+void loadSession();
