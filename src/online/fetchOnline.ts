@@ -1,4 +1,5 @@
 import type { IndexedProduct } from "../domain/types.js";
+import type { ProgressReporter } from "../domain/progress.js";
 import type { Repository } from "../index/repository.js";
 import type { StoreClient } from "../store/graphql.js";
 import {
@@ -19,7 +20,7 @@ export interface OnlineFetchOptions extends FetchTreeOptions {
   /** Politeness delay between products in ms (spec §10 throttling). */
   readonly delayMs?: number;
   readonly now?: number;
-  readonly onProgress?: (message: string) => void;
+  readonly onProgress?: ProgressReporter;
 }
 
 export interface OnlineFetchResult {
@@ -38,9 +39,10 @@ export async function fetchOnlineProducts(
   opts: OnlineFetchOptions = {},
 ): Promise<OnlineFetchResult> {
   const now = opts.now ?? Date.now();
-  const log = opts.onProgress ?? (() => {});
+  const report = opts.onProgress ?? (() => {});
   const delayMs = opts.delayMs ?? 0;
   const ids = repo.listProductsToFetchOnline(opts.limit);
+  const total = ids.length;
 
   let deepIndexed = 0;
   let wrappers = 0;
@@ -53,7 +55,13 @@ export async function fetchOnlineProducts(
     if (!catalog || !row) continue;
 
     try {
-      log(`Fetching online tree for ${catalog.name}…`);
+      report({
+        phase: "fetch",
+        current: i + 1,
+        total,
+        message: `Fetching online tree for ${catalog.name}…`,
+        detail: catalog.name,
+      });
       const tree = await fetchOnlineProductTree(client, productId, opts);
       const indexed: IndexedProduct = {
         product: catalog,

@@ -5,6 +5,8 @@ import type { SearchOptions } from "../index/search.js";
 import { sessionFromCookieHeader } from "../store/csrf.js";
 import { parseArgs, flagStr, flagBool, flagInt } from "./args.js";
 import { formatResults } from "./format.js";
+import { createProgressReporter } from "./progressBar.js";
+import type { ProgressReporter } from "../domain/progress.js";
 import { startGuiServer } from "../server/index.js";
 
 /**
@@ -47,6 +49,22 @@ function progress(message: string): void {
   process.stderr.write(`${message}\n`);
 }
 
+/**
+ * Run a long operation with a live progress bar on stderr, clearing it before
+ * the command writes its final summary to stdout (kept clean for piping). The
+ * bar is cleared on error too, so a thrown failure prints on a fresh line.
+ */
+async function withProgress<T>(
+  run: (onProgress: ProgressReporter) => Promise<T>,
+): Promise<T> {
+  const { reporter, done } = createProgressReporter();
+  try {
+    return await run(reporter);
+  } finally {
+    done();
+  }
+}
+
 async function run(argv: string[]): Promise<number> {
   const { command, positionals, flags } = parseArgs(argv);
   if (!command || command === "help" || flagBool(flags, "help")) {
@@ -69,14 +87,16 @@ async function run(argv: string[]): Promise<number> {
           "Opening a browser window for Unity sign-in. Log in there — " +
             "AssetLens never sees your password.\n",
         );
-        const result = await engine.loginAndImport({
-          remember: !flagBool(flags, "no-remember"),
-          onProgress: progress,
-          delayMs: flagInt(flags, "delay") ?? 150,
-          ...(timeoutSec !== undefined
-            ? { loginTimeoutMs: timeoutSec * 1000 }
-            : {}),
-        });
+        const result = await withProgress((onProgress) =>
+          engine.loginAndImport({
+            remember: !flagBool(flags, "no-remember"),
+            onProgress,
+            delayMs: flagInt(flags, "delay") ?? 150,
+            ...(timeoutSec !== undefined
+              ? { loginTimeoutMs: timeoutSec * 1000 }
+              : {}),
+          }),
+        );
         process.stdout.write(
           `${result.email ? `Signed in as ${result.email}. ` : ""}` +
             `Imported ${result.imported} of ${result.owned} owned products ` +
@@ -97,9 +117,12 @@ async function run(argv: string[]): Promise<number> {
       case "import": {
         const file = positionals[0];
         if (!file) throw new Error("Usage: assetlens import <file.json>");
-        const { imported, skipped, keywords } = await engine.importCatalogFile(
-          file,
-          { onProgress: progress, delayMs: flagInt(flags, "delay") ?? 150 },
+        const { imported, skipped, keywords } = await withProgress(
+          (onProgress) =>
+            engine.importCatalogFile(file, {
+              onProgress,
+              delayMs: flagInt(flags, "delay") ?? 150,
+            }),
         );
         process.stdout.write(
           `Imported ${imported} products${skipped ? ` (skipped ${skipped} malformed)` : ""}` +
@@ -109,11 +132,13 @@ async function run(argv: string[]): Promise<number> {
       }
 
       case "scan": {
-        const result = await engine.scanLocal({
-          force: flagBool(flags, "force"),
-          recurse: flagBool(flags, "recurse", true),
-          onProgress: progress,
-        });
+        const result = await withProgress((onProgress) =>
+          engine.scanLocal({
+            force: flagBool(flags, "force"),
+            recurse: flagBool(flags, "recurse", true),
+            onProgress,
+          }),
+        );
         process.stdout.write(
           `Local scan: ${result.indexed} indexed, ${result.skipped} unchanged, ` +
             `${result.matched} matched to catalog, ` +
@@ -129,13 +154,15 @@ async function run(argv: string[]): Promise<number> {
         const session = cookie
           ? sessionFromCookieHeader(cookie)
           : await engine.anonymousSession();
-        const result = await engine.fetchOnline(session, {
-          ...(flagInt(flags, "limit") !== undefined
-            ? { limit: flagInt(flags, "limit") }
-            : {}),
-          delayMs: flagInt(flags, "delay") ?? 250,
-          onProgress: progress,
-        });
+        const result = await withProgress((onProgress) =>
+          engine.fetchOnline(session, {
+            ...(flagInt(flags, "limit") !== undefined
+              ? { limit: flagInt(flags, "limit") }
+              : {}),
+            delayMs: flagInt(flags, "delay") ?? 250,
+            onProgress,
+          }),
+        );
         process.stdout.write(
           `Online fetch: ${result.deepIndexed} deep-indexed, ${result.wrappers} wrappers ` +
             `(shallow), ${result.errors.length} errors of ${result.attempted} attempted.\n`,
@@ -144,17 +171,19 @@ async function run(argv: string[]): Promise<number> {
       }
 
       case "enrich": {
-        const result = await engine.enrichKeywords({
-          force: flagBool(flags, "force"),
-          ...(flagInt(flags, "limit") !== undefined
-            ? { limit: flagInt(flags, "limit") }
-            : {}),
-          delayMs: flagInt(flags, "delay") ?? 150,
-          ...(flagInt(flags, "concurrency") !== undefined
-            ? { concurrency: flagInt(flags, "concurrency") }
-            : {}),
-          onProgress: progress,
-        });
+        const result = await withProgress((onProgress) =>
+          engine.enrichKeywords({
+            force: flagBool(flags, "force"),
+            ...(flagInt(flags, "limit") !== undefined
+              ? { limit: flagInt(flags, "limit") }
+              : {}),
+            delayMs: flagInt(flags, "delay") ?? 150,
+            ...(flagInt(flags, "concurrency") !== undefined
+              ? { concurrency: flagInt(flags, "concurrency") }
+              : {}),
+            onProgress,
+          }),
+        );
         process.stdout.write(
           `Enriched Related keywords for ${result.enriched} of ${result.attempted} products` +
             `${result.errors.length ? `; ${result.errors.length} errors` : ""}.\n`,

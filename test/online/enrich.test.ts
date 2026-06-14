@@ -109,4 +109,29 @@ describe("enrichProducts (spec §5.5)", () => {
     // Every product's keyword landed regardless of completion order.
     expect(search(repo.db, "kw-7").map((h) => h.productId)).toContain("7");
   });
+
+  it("reports structured progress that advances to current === total", async () => {
+    const repo = memoryRepo();
+    const products = Array.from({ length: 5 }, (_, i) =>
+      catalogProduct({ id: String(i), name: `P${i}` }),
+    );
+    repo.importCatalog(products, 1);
+
+    const { http } = mockHttp(
+      products.map((_, i) => ({ body: relatedSection([`kw-${i}`]) })),
+    );
+    const events: import("../../src/domain/progress.js").ProgressEvent[] = [];
+    const result = await enrichProducts(repo, http, {
+      now: 2,
+      concurrency: 2,
+      onProgress: (e) => events.push(e),
+    });
+
+    // An initial 0/total tick, then one per completed product, all totalled.
+    expect(events[0]).toMatchObject({ phase: "enrich", current: 0, total: 5 });
+    expect(events.every((e) => e.total === result.attempted)).toBe(true);
+    const counts = events.map((e) => e.current);
+    expect(Math.max(...counts)).toBe(5); // reaches the total
+    expect(events.at(-1)!.current).toBe(5);
+  });
 });

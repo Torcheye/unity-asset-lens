@@ -217,9 +217,15 @@ const actions = {
   },
   runStep(name) {
     if (getState().steps[name]?.status === "running") return;
-    setStep(name, { status: "running", progressText: "Starting…" });
+    setStep(name, { status: "running", progressText: "Starting…", current: 0, total: 0 });
     api.runStep(name, {
-      onProgress: (message) => setStep(name, { status: "running", progressText: message }),
+      onProgress: (p) =>
+        setStep(name, {
+          status: "running",
+          progressText: p.message,
+          current: p.current ?? 0,
+          total: p.total ?? 0,
+        }),
       // The sign-in step emits this the instant sign-in lands — reflect the
       // signed-in status (header + Import gate) at once, before `done` arrives.
       onAccount: (session) => setState((s) => ({ session, steps: deriveSteps({ ...s, session }) })),

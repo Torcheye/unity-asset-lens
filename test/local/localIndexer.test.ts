@@ -180,6 +180,37 @@ describe("indexLocalCache (end-to-end with real .unitypackage files)", () => {
     expect(repo.getProduct("local:indie/freebie")).toBeDefined();
   });
 
+  it("reports progress over every package, including unchanged skips", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+
+    const a = await buildUnityPackage([{ path: "A/a.wav" }]);
+    const b = await buildUnityPackage([{ path: "B/b.wav" }]);
+    await writeFileAt(dir, "Pub/Cat/A.unitypackage", a);
+    await writeFileAt(dir, "Pub/Cat/B.unitypackage", b);
+
+    const repo = memoryRepo();
+    const first: import("../../src/domain/progress.js").ProgressEvent[] = [];
+    const r1 = await indexLocalCache(repo, dir, [], {
+      now: 1,
+      onProgress: (e) => first.push(e),
+    });
+    expect(r1.indexed).toBe(2);
+    expect(first.every((e) => e.phase === "scan" && e.total === 2)).toBe(true);
+    expect(first.at(-1)!.current).toBe(2); // reaches the total
+
+    // Re-scan: both unchanged → skipped, but the bar still advances to 2/2.
+    const second: import("../../src/domain/progress.js").ProgressEvent[] = [];
+    const r2 = await indexLocalCache(repo, dir, [], {
+      now: 2,
+      onProgress: (e) => second.push(e),
+    });
+    expect(r2.skipped).toBe(2);
+    expect(r2.indexed).toBe(0);
+    expect(second.map((e) => e.current)).toEqual([1, 2]);
+    expect(second.at(-1)!.total).toBe(2);
+  });
+
   it("records a parse error without aborting the whole scan", async () => {
     const { dir, cleanup } = await makeTempDir();
     cleanups.push(cleanup);
