@@ -198,6 +198,115 @@ describe("AssetLensEngine.loginAndImport", () => {
     }
   });
 
+  it("signIn persists the session and account without importing the catalog", async () => {
+    let detailsFetched = 0;
+    const launcher: BrowserLauncher = {
+      async launch() {
+        return {
+          async goto() {},
+          async getOwnedProductIds(): Promise<OwnedIdsResult> {
+            return { authenticated: true, ids: ["1", "2", "3"] };
+          },
+          async getAccount() {
+            return { email: "dev@studio.io" };
+          },
+          async fetchProductDetails(ids) {
+            detailsFetched += 1;
+            return ids.map((id) => ({ id }));
+          },
+          async storageState() {
+            return { kind: "state" };
+          },
+          async close() {},
+        };
+      },
+    };
+    const { store, saved } = memStore();
+    const { store: accountStore, saved: accountSaved } = memAccountStore();
+    const engine = AssetLensEngine.open({ dbPath: ":memory:", cacheRoot: "/tmp/none", env });
+
+    try {
+      const statuses: unknown[] = [];
+      const result = await engine.signIn({
+        launcher,
+        sessionStore: store,
+        accountStore,
+        sleep: async () => {},
+        now: () => 99,
+        onSignedIn: (s) => statuses.push(s),
+      });
+
+      expect(result).toEqual({ ownedCount: 3, remembered: true, email: "dev@studio.io" });
+      // Sign-in never fetches product details — that is the separate import step.
+      expect(detailsFetched).toBe(0);
+      expect(saved).toEqual([{ kind: "state" }]);
+      expect(accountSaved).toEqual([
+        { email: "dev@studio.io", ownedCount: 3, importedAt: 99 },
+      ]);
+      // Status flips to signed-in immediately…
+      expect(statuses).toEqual([
+        { loggedIn: true, email: "dev@studio.io", ownedCount: 3, importedAt: 99 },
+      ]);
+      expect((await engine.sessionStatus(store, accountStore)).loggedIn).toBe(true);
+      // …but no catalog has been imported yet.
+      expect(engine.stats().products).toBe(0);
+    } finally {
+      engine.close();
+    }
+  });
+
+  it("importLibrary imports the owned catalog using the saved session", async () => {
+    const details: Record<string, unknown> = {
+      "1": { id: "1", name: "Pack A", publisher: { name: "Acme" } },
+      "2": { id: "2", name: "Pack B", publisher: { name: "Beta" } },
+    };
+    const launcher = scriptedLauncher(["1", "2"], (id) => details[id], "dev@studio.io");
+    const { store } = memStore({ kind: "restored" }); // sign-in already happened
+    const { store: accountStore } = memAccountStore();
+    const { http } = mockHttp((url) =>
+      url.includes("/packages/slug/")
+        ? {
+            body:
+              `<h2>Related keywords</h2><div><a href="/?q=space">space</a></div>` +
+              `<h2>Frequently bought together</h2>`,
+          }
+        : { status: 404 },
+    );
+    const engine = AssetLensEngine.open({ dbPath: ":memory:", cacheRoot: "/tmp/none", env, http });
+
+    try {
+      const result = await engine.importLibrary({
+        launcher,
+        sessionStore: store,
+        accountStore,
+        batchSize: 2,
+        sleep: async () => {},
+        now: () => 1,
+      });
+
+      expect(result.imported).toBe(2);
+      expect(result.owned).toBe(2);
+      expect(result.keywords).toBe(2);
+      expect(engine.stats().products).toBe(2);
+      expect(engine.search("Pack").map((g) => g.productId).sort()).toEqual(["1", "2"]);
+      expect(engine.search("space").map((g) => g.productId).sort()).toEqual(["1", "2"]);
+    } finally {
+      engine.close();
+    }
+  });
+
+  it("importLibrary refuses to run before sign-in", async () => {
+    const { store } = memStore(null); // no saved session
+    const engine = AssetLensEngine.open({ dbPath: ":memory:", cacheRoot: "/tmp/none", env });
+    try {
+      await expect(
+        engine.importLibrary({ sessionStore: store, sleep: async () => {} }),
+      ).rejects.toThrow(/Sign in step first/i);
+    } finally {
+      engine.close();
+    }
+  });
+
   it("logout clears both the session and account stores", async () => {
     const { store, clearedCount } = memStore({ kind: "state" });
     const { store: accountStore, clearedCount: accountCleared } = memAccountStore({

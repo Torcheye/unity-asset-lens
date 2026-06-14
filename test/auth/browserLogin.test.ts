@@ -154,6 +154,29 @@ describe("runBrowserLogin", () => {
     expect(events.closed).toBe(1);
   });
 
+  it("signInOnly stops after persisting the session, without fetching details", async () => {
+    const { browser, events } = makeBrowser({
+      probes: [pending, authed(["1", "2", "3"])],
+      detailFor: (id) => ({ id }),
+    });
+    const { launcher } = makeLauncher(browser);
+    const { store, saved } = makeStore();
+
+    const result = await runBrowserLogin(launcher, store, {
+      signInOnly: true,
+      pollIntervalMs: 5,
+      sleep: async () => {},
+      now: () => 0,
+    });
+
+    expect(result.ownedCount).toBe(3);
+    expect(result.products).toEqual([]); // sign-in only — no detail fetch
+    expect(result.remembered).toBe(true);
+    expect(saved).toEqual([{ kind: "saved-state" }]);
+    expect(events.detailBatches).toEqual([]);
+    expect(events.closed).toBe(1);
+  });
+
   it("continues past a failed batch instead of aborting the whole login", async () => {
     const ids = ["1", "2", "3", "4"];
     const { browser, events } = makeBrowser({

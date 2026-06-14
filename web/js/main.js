@@ -25,6 +25,7 @@ const store = createStore({
   history: history.load(),
   importHelp: false,
   steps: {
+    signin: { status: "todo" },
     import: { status: "todo" },
     scan: { status: "todo" },
     fetch: { status: "todo" },
@@ -79,18 +80,29 @@ const ACTION_TOAST = {
 };
 
 // ── overview / steps ──────────────────────────────────────────────────────────
-function deriveSteps(overview, prev) {
-  const stats = overview.stats;
+// Steps reflect persisted facts: sign-in from the saved session, import from the
+// product count, scan from the indexed-file count. A step mid-run is left alone.
+function deriveSteps(state) {
+  const prev = state.steps;
   const next = { ...prev };
-  if (prev.import.status !== "running") {
-    next.import = stats.products > 0
-      ? { status: "done", detail: `${stats.products.toLocaleString()} owned products imported` }
+  const session = state.session;
+  if (prev.signin.status !== "running") {
+    next.signin = session?.loggedIn
+      ? { status: "done", detail: session.email ? `Signed in as ${session.email}` : "Signed in" }
       : { status: "todo" };
   }
-  if (prev.scan.status !== "running") {
-    next.scan = stats.files > 0
-      ? { status: "done", detail: `${stats.files.toLocaleString()} files indexed across ${stats.localProducts} packages` }
-      : { status: "todo" };
+  const stats = state.overview?.stats;
+  if (stats) {
+    if (prev.import.status !== "running") {
+      next.import = stats.products > 0
+        ? { status: "done", detail: `${stats.products.toLocaleString()} owned products imported` }
+        : { status: "todo" };
+    }
+    if (prev.scan.status !== "running") {
+      next.scan = stats.files > 0
+        ? { status: "done", detail: `${stats.files.toLocaleString()} files indexed across ${stats.localProducts} packages` }
+        : { status: "todo" };
+    }
   }
   return next;
 }
@@ -99,12 +111,14 @@ function loadOverview(navigateIfReady) {
   return api
     .getOverview()
     .then((overview) => {
-      const prev = getState();
-      const patch = { overview, steps: deriveSteps(overview, prev.steps) };
-      if (navigateIfReady && overview.ready && prev.view === "setup" && !prev.query) {
-        patch.view = "search";
-      }
-      setState(patch);
+      setState((prev) => {
+        const merged = { ...prev, overview };
+        const patch = { overview, steps: deriveSteps(merged) };
+        if (navigateIfReady && overview.ready && prev.view === "setup" && !prev.query) {
+          patch.view = "search";
+        }
+        return patch;
+      });
     })
     .catch((err) => setState({ searchError: `Could not reach the engine: ${err.message}` }));
 }
@@ -112,7 +126,9 @@ function loadOverview(navigateIfReady) {
 function loadSession() {
   return api
     .getSession()
-    .then((session) => setState({ session }))
+    .then((session) =>
+      setState((prev) => ({ session, steps: deriveSteps({ ...prev, session }) })),
+    )
     .catch(() => {}); // status is a non-critical adornment; ignore transient errors
 }
 
@@ -130,16 +146,17 @@ const actions = {
   goSetup() {
     setState({ view: "setup" });
   },
-  // Sign in lives in the setup view's import step (it streams browser
-  // progress); the header button routes there and kicks it off.
+  // Sign in is setup step 1 (it streams browser progress); the header button
+  // routes to setup and kicks it off.
   login() {
     setState({ view: "setup" });
-    actions.runStep("import");
+    actions.runStep("signin");
   },
   async logout() {
     try {
       const session = await api.logout();
-      setState({ session });
+      // Clearing the session re-derives the Sign-in card back to "to do".
+      setState((s) => ({ session, steps: deriveSteps({ ...s, session }) }));
       showToast("Signed out", "Saved login session cleared", "#ff8f6b");
     } catch (err) {
       showToast("Couldn't sign out", err.message, "#ff8f6b");
@@ -203,12 +220,13 @@ const actions = {
     setStep(name, { status: "running", progressText: "Starting…" });
     api.runStep(name, {
       onProgress: (message) => setStep(name, { status: "running", progressText: message }),
-      // Sign-in completes well before import/enrich finish — reflect it at once.
-      onAccount: (session) => setState({ session }),
+      // The sign-in step emits this the instant sign-in lands — reflect the
+      // signed-in status (header + Import gate) at once, before `done` arrives.
+      onAccount: (session) => setState((s) => ({ session, steps: deriveSteps({ ...s, session }) })),
       onDone: (detail) => {
         setStep(name, { status: "done", detail });
         void loadOverview(false);
-        if (name === "import") void loadSession();
+        if (name === "signin") void loadSession();
       },
       onError: (message) => setStep(name, { status: "error", detail: message }),
     });
