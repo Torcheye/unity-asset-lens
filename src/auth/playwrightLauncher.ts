@@ -6,6 +6,7 @@ import {
   STORE_ORIGIN,
 } from "../store/constants.js";
 import type {
+  AccountProbe,
   BrowserLauncher,
   LoginBrowser,
   OwnedIdsResult,
@@ -141,12 +142,25 @@ async function readCsrf(context: PwContext): Promise<string | undefined> {
   }
 }
 
+/** What a single `CurrentUser` batch entry can yield: owned IDs and/or an email. */
+interface CurrentUserProbe {
+  readonly ids: string[] | null;
+  readonly email: string | null;
+}
+
+type CurrentUserNode = {
+  data?: { user?: { myAssets?: unknown; email?: unknown } };
+};
+
 /**
  * Inspect a storefront GraphQL response for the `CurrentUser` payload and pull
- * the owned product IDs out of `user.myAssets` (a JSON-encoded string array).
- * Returns null for unrelated responses.
+ * out the owned product IDs (`user.myAssets`, a JSON-encoded string array) and
+ * the user's email (`user.email`, best-effort). Returns null for unrelated
+ * responses; either field may be null when the payload omits it.
  */
-async function extractOwnedIds(res: PwResponse): Promise<string[] | null> {
+async function extractCurrentUser(
+  res: PwResponse,
+): Promise<CurrentUserProbe | null> {
   if (!res.url().includes("/api/graphql/batch")) return null;
   let json: unknown;
   try {
@@ -155,20 +169,24 @@ async function extractOwnedIds(res: PwResponse): Promise<string[] | null> {
     return null;
   }
   const entries = Array.isArray(json) ? json : [json];
+  let ids: string[] | null = null;
+  let email: string | null = null;
   for (const entry of entries) {
-    const myAssets = (
-      entry as { data?: { user?: { myAssets?: unknown } } } | undefined
-    )?.data?.user?.myAssets;
-    if (typeof myAssets === "string") {
+    const user = (entry as CurrentUserNode | undefined)?.data?.user;
+    if (!user) continue;
+    if (ids === null && typeof user.myAssets === "string") {
       try {
-        const ids: unknown = JSON.parse(myAssets);
-        if (Array.isArray(ids)) return ids.map((x) => String(x));
+        const parsed: unknown = JSON.parse(user.myAssets);
+        if (Array.isArray(parsed)) ids = parsed.map((x) => String(x));
       } catch {
         /* not the payload we expected */
       }
     }
+    if (email === null && typeof user.email === "string" && user.email) {
+      email = user.email;
+    }
   }
-  return null;
+  return ids === null && email === null ? null : { ids, email };
 }
 
 export function playwrightLauncher(
@@ -188,11 +206,15 @@ export function playwrightLauncher(
           : {},
       );
 
-      // Sniff the owned-product IDs from the page's own CurrentUser request.
+      // Sniff the owned-product IDs (and email) from the page's own
+      // CurrentUser request.
       let ownedIds: string[] | null = null;
+      let email: string | null = null;
       context.on("response", (res) => {
-        void extractOwnedIds(res).then((ids) => {
-          if (ids) ownedIds = ids;
+        void extractCurrentUser(res).then((probe) => {
+          if (!probe) return;
+          if (probe.ids) ownedIds = probe.ids;
+          if (probe.email) email = probe.email;
         });
       });
 
@@ -208,6 +230,10 @@ export function playwrightLauncher(
           return ownedIds !== null
             ? { authenticated: true, ids: ownedIds }
             : { authenticated: false, ids: [], reason: "awaiting CurrentUser" };
+        },
+
+        async getAccount(): Promise<AccountProbe> {
+          return email !== null ? { email } : {};
         },
 
         async fetchProductDetails(ids: readonly string[]) {

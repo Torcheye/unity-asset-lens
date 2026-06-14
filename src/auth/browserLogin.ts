@@ -26,12 +26,20 @@ export interface OwnedIdsResult {
   readonly reason?: string;
 }
 
+/** Identifying details for the signed-in user, sniffed from `CurrentUser`. */
+export interface AccountProbe {
+  /** The user's email, if the authenticated response surfaced one. */
+  readonly email?: string;
+}
+
 /** A live browser the orchestration drives. Implemented by the Playwright driver. */
 export interface LoginBrowser {
   /** Navigate the visible window to a URL. */
   goto(url: string): Promise<void>;
   /** Current owned-ID state, derived from the sniffed `CurrentUser` response. */
   getOwnedProductIds(): Promise<OwnedIdsResult>;
+  /** Identifying details for the signed-in user (best-effort; optional). */
+  getAccount?(): Promise<AccountProbe>;
   /** Resolve a batch of owned IDs to raw `Product` nodes (one per ID, in order). */
   fetchProductDetails(ids: readonly string[]): Promise<unknown[]>;
   /** Snapshot the session (cookies/storage) for persistence. */
@@ -49,9 +57,26 @@ export interface BrowserLauncher {
   launch(opts: LaunchOptions): Promise<LoginBrowser>;
 }
 
+/** Snapshot handed to {@link RunBrowserLoginOptions.onSignedIn} at sign-in. */
+export interface SignedInInfo {
+  /** Email observed for the signed-in user, or null if none surfaced. */
+  readonly email: string | null;
+  /** Number of owned product IDs discovered. */
+  readonly ownedCount: number;
+  /** Whether the session was persisted (mirrors `remember`). */
+  readonly remembered: boolean;
+}
+
 export interface RunBrowserLoginOptions {
   /** Persist the session for next time (default true). */
   readonly remember?: boolean;
+  /**
+   * Fired the instant sign-in is detected — after the session is persisted but
+   * *before* the (potentially slow) detail fetch + catalog import — so callers
+   * can reflect the signed-in state immediately. Awaited, so a persisting
+   * handler completes before import proceeds.
+   */
+  readonly onSignedIn?: (info: SignedInInfo) => void | Promise<void>;
   /** `Product` operations per batched request (default {@link OWNED_DETAIL_BATCH_SIZE}). */
   readonly batchSize?: number;
   /** Delay between detail batches, in ms (default 0). */
@@ -76,6 +101,8 @@ export interface BrowserLoginResult {
   readonly ownedCount: number;
   /** Whether the session was persisted. */
   readonly remembered: boolean;
+  /** Email observed for the signed-in user, or null if none surfaced. */
+  readonly email: string | null;
 }
 
 const DEFAULT_LOGIN_TIMEOUT_MS = 180_000;
@@ -122,8 +149,21 @@ export async function runBrowserLogin(
       sleep,
       now,
     });
+    const account = browser.getAccount ? await browser.getAccount() : {};
+    const email = account.email ?? null;
+
+    // Persist the session the instant sign-in is detected — before the slow
+    // detail fetch + import — so the saved-login status reflects it right away.
+    let remembered = false;
+    if (remember) {
+      await store.save(await browser.storageState());
+      remembered = true;
+    }
+    await opts.onSignedIn?.({ email, ownedCount: ids.length, remembered });
+
     onProgress(
-      `Signed in. Found ${ids.length} owned products; fetching details…`,
+      `Signed in${email ? ` as ${email}` : ""}. ` +
+        `Found ${ids.length} owned products; fetching details…`,
     );
 
     const products: unknown[] = [];
@@ -141,13 +181,7 @@ export async function runBrowserLogin(
       if (delayMs > 0 && start + batchSize < ids.length) await sleep(delayMs);
     }
 
-    let remembered = false;
-    if (remember) {
-      await store.save(await browser.storageState());
-      remembered = true;
-    }
-
-    return { products, ownedCount: ids.length, remembered };
+    return { products, ownedCount: ids.length, remembered, email };
   } finally {
     await browser.close();
   }

@@ -39,6 +39,17 @@ export async function handleApi(
     return true;
   }
 
+  if (path === "/api/session" && method === "GET") {
+    sendJson(res, 200, await engine.sessionStatus());
+    return true;
+  }
+
+  if (path === "/api/logout" && method === "POST") {
+    await engine.logout();
+    sendJson(res, 200, await engine.sessionStatus());
+    return true;
+  }
+
   if (path === "/api/search" && method === "GET") {
     handleSearch(engine, res, url);
     return true;

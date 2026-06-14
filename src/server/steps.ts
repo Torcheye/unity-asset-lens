@@ -23,7 +23,7 @@ export async function runStep(
   const emit = openSse(res);
   const onProgress = (message: string): void => emit("progress", { message });
   try {
-    const detail = await execute(engine, name, onProgress);
+    const detail = await execute(engine, name, onProgress, emit);
     emit("done", { detail });
   } catch (err) {
     emit("error", { message: (err as Error).message });
@@ -36,11 +36,19 @@ async function execute(
   engine: AssetLensEngine,
   name: StepName,
   onProgress: (message: string) => void,
+  emit: (event: string, data: unknown) => void,
 ): Promise<string> {
   switch (name) {
     case "import": {
-      const r = await engine.loginAndImport({ onProgress, delayMs: 250 });
+      const r = await engine.loginAndImport({
+        onProgress,
+        delayMs: 250,
+        // Push the signed-in status to the browser immediately, so the header
+        // updates before catalog import + keyword enrichment finish.
+        onSignedIn: (status) => emit("account", status),
+      });
       return (
+        `${r.email ? `${r.email} · ` : ""}` +
         `${r.imported} of ${r.owned} owned products imported · ` +
         `keywords for ${r.keywords}` +
         (r.remembered ? " · session saved for next time" : "")

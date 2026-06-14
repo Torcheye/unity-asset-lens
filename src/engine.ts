@@ -5,6 +5,7 @@ import {
   resolveCacheRoot,
   defaultDbPath,
   defaultSessionStatePath,
+  defaultAccountPath,
   type PathEnv,
 } from "./config/paths.js";
 import { openDatabase, type DB } from "./index/db.js";
@@ -16,6 +17,7 @@ import {
   type BrowserLauncher,
 } from "./auth/browserLogin.js";
 import { fileSessionStore, type SessionStore } from "./auth/sessionStore.js";
+import { fileAccountStore, type AccountStore } from "./auth/accountStore.js";
 import {
   indexLocalCache,
   indexPackage,
@@ -62,6 +64,11 @@ export interface LoginImportOptions {
   /** Persist the browser session for next time (default true). */
   readonly remember?: boolean;
   readonly onProgress?: (message: string) => void;
+  /**
+   * Fired the instant sign-in is detected — before catalog import and keyword
+   * enrichment finish — so the GUI can reflect the signed-in status right away.
+   */
+  readonly onSignedIn?: (status: SessionStatus) => void;
   /** How long to wait for the user to sign in, in ms. */
   readonly loginTimeoutMs?: number;
   /** Poll interval while waiting for sign-in, in ms. */
@@ -74,6 +81,8 @@ export interface LoginImportOptions {
   readonly launcher?: BrowserLauncher;
   /** Injectable session store (defaults to the on-disk session file). */
   readonly sessionStore?: SessionStore;
+  /** Injectable account store (defaults to the on-disk account file). */
+  readonly accountStore?: AccountStore;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly now?: () => number;
 }
@@ -87,6 +96,20 @@ export interface LoginImportResult {
   readonly remembered: boolean;
   /** Products whose store-page keywords were fetched and indexed. */
   readonly keywords: number;
+  /** Email observed for the signed-in user, or null if none surfaced. */
+  readonly email: string | null;
+}
+
+/** Saved-login status for the GUI's session indicator. */
+export interface SessionStatus {
+  /** Whether a saved browser session exists on this machine. */
+  readonly loggedIn: boolean;
+  /** Email captured at last sign-in, if any. */
+  readonly email: string | null;
+  /** Owned product count captured at last sign-in, if known. */
+  readonly ownedCount: number | null;
+  /** When the catalog was last imported, in epoch ms, if known. */
+  readonly importedAt: number | null;
 }
 
 /** Options for the keyword fetch folded into catalog import. */
@@ -186,6 +209,34 @@ export class AssetLensEngine {
     return defaultSessionStatePath(this.#env);
   }
 
+  /** Path where the saved account metadata lives. */
+  get accountPath(): string {
+    return defaultAccountPath(this.#env);
+  }
+
+  /**
+   * Report whether a saved login session exists, plus the display metadata
+   * (email/owned count/import time) captured at last sign-in. "Logged in" means
+   * a persisted session is present — the same notion `logout` clears — not that
+   * the session is still valid against Unity (which would require a network
+   * round-trip). Stores are injectable for testing.
+   */
+  async sessionStatus(
+    sessionStore: SessionStore = fileSessionStore(this.sessionStatePath),
+    accountStore: AccountStore = fileAccountStore(this.accountPath),
+  ): Promise<SessionStatus> {
+    const [session, account] = await Promise.all([
+      sessionStore.load(),
+      accountStore.load(),
+    ]);
+    return {
+      loggedIn: session !== null,
+      email: account?.email ?? null,
+      ownedCount: account?.ownedCount ?? null,
+      importedAt: account?.importedAt ?? null,
+    };
+  }
+
   /**
    * Drive a browser to Unity's sign-in page, then export the owned catalog from
    * inside the authenticated page and import it — fetching each product's
@@ -201,12 +252,24 @@ export class AssetLensEngine {
         platform: this.#env.platform,
       });
     const store = opts.sessionStore ?? fileSessionStore(this.sessionStatePath);
+    const accountStore =
+      opts.accountStore ?? fileAccountStore(this.accountPath);
+    const now = opts.now ?? (() => Date.now());
 
-    const { products, ownedCount, remembered } = await runBrowserLogin(
+    const { products, ownedCount, remembered, email } = await runBrowserLogin(
       launcher,
       store,
       {
         remember: opts.remember ?? true,
+        // Persist account metadata and surface the status the moment sign-in is
+        // detected, so the indicator updates before import/enrich complete.
+        onSignedIn: async ({ email, ownedCount, remembered }) => {
+          const importedAt = now();
+          if (remembered) {
+            await accountStore.save({ email, ownedCount, importedAt });
+          }
+          opts.onSignedIn?.({ loggedIn: true, email, ownedCount, importedAt });
+        },
         ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
         ...(opts.loginTimeoutMs !== undefined
           ? { loginTimeoutMs: opts.loginTimeoutMs }
@@ -222,17 +285,26 @@ export class AssetLensEngine {
     );
 
     const { products: parsed } = parseMyAssets(products);
-    const imported = this.repo.importCatalog(parsed, Date.now());
+    const imported = this.repo.importCatalog(parsed, now());
     const { enriched } = await this.#importKeywords({
       ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
       ...(opts.delayMs !== undefined ? { delayMs: opts.delayMs } : {}),
     });
-    return { imported, owned: ownedCount, remembered, keywords: enriched };
+    // Account metadata is persisted at sign-in (see onSignedIn above), in
+    // lock-step with the saved session that `logout` clears.
+    return { imported, owned: ownedCount, remembered, keywords: enriched, email };
   }
 
-  /** Forget the persisted browser session (`assetlens logout`). */
-  async logout(store: SessionStore = fileSessionStore(this.sessionStatePath)): Promise<void> {
-    await store.clear();
+  /**
+   * Forget the persisted browser session and account metadata
+   * (`assetlens logout`). Both stores are cleared so the session indicator and
+   * the saved session never disagree.
+   */
+  async logout(
+    store: SessionStore = fileSessionStore(this.sessionStatePath),
+    accountStore: AccountStore = fileAccountStore(this.accountPath),
+  ): Promise<void> {
+    await Promise.all([store.clear(), accountStore.clear()]);
   }
 
   // ---- local indexing (spec §5.2, §5.3) ------------------------------------

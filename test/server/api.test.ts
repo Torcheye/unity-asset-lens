@@ -115,6 +115,23 @@ describe("POST /api/action", () => {
   });
 });
 
+describe("session status", () => {
+  it("reports logged-out when no session is saved", async () => {
+    const res = await fetch(`${base}/api/session`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.loggedIn).toBe(false);
+    expect(body.email).toBeNull();
+  });
+
+  it("logout returns a logged-out status", async () => {
+    const res = await fetch(`${base}/api/logout`, { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.loggedIn).toBe(false);
+  });
+});
+
 describe("static + SPA fallback", () => {
   it("serves the app shell at /", async () => {
     const res = await fetch(`${base}/`);
