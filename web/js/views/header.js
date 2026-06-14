@@ -23,16 +23,9 @@ export function Header(state) {
     },
     h(
       "div",
-      { style: { display: "flex", gap: "7px" } },
-      h("span", { style: { width: "11px", height: "11px", borderRadius: "50%", background: "#ff5f57" } }),
-      h("span", { style: { width: "11px", height: "11px", borderRadius: "50%", background: "#febc2e" } }),
-      h("span", { style: { width: "11px", height: "11px", borderRadius: "50%", background: "#28c840" } }),
-    ),
-    h(
-      "div",
-      { style: { display: "flex", alignItems: "center", gap: "8px", marginLeft: "6px" } },
+      { style: { display: "flex", alignItems: "center", gap: "8px" } },
       raw(LOGO),
-      h("span", { style: { fontSize: "13.5px", fontWeight: 600, letterSpacing: "-0.1px", color: "#ededf1" } }, "AssetLens"),
+      h("span", { style: { fontSize: "0.8438rem", fontWeight: 600, letterSpacing: "-0.1px", color: "#ededf1" } }, "AssetLens"),
     ),
     h("div", { style: { flex: "1" } }),
     h(
@@ -44,7 +37,7 @@ export function Header(state) {
         title: "View source on GitHub",
         style: {
           display: "flex", alignItems: "center", gap: "6px", padding: "4px 9px",
-          fontSize: "11.5px", color: "#9a9aa4", textDecoration: "none",
+          fontSize: "0.7188rem", color: "#9a9aa4", textDecoration: "none",
           border: "1px solid #2a2a31", borderRadius: "7px",
         },
         hover: { color: "#ededf1", borderColor: "#3d3d46", background: "#232329" },
@@ -58,7 +51,7 @@ export function Header(state) {
       {
         style: {
           display: "flex", alignItems: "center", gap: "8px",
-          fontSize: "11.5px", color: "#7a7a85", fontFamily: MONO,
+          fontSize: "0.7188rem", color: "#7a7a85", fontFamily: MONO,
         },
       },
       h("span", { style: { width: "6px", height: "6px", borderRadius: "50%", background: "#46d9a0" } }),
