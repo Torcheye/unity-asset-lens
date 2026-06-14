@@ -11,6 +11,12 @@ import { kharmaLink } from "../store/constants.js";
 export interface OsCommand {
   readonly cmd: string;
   readonly args: readonly string[];
+  /**
+   * Pass args to the Windows process verbatim (no automatic quoting). Required
+   * for `explorer.exe /select,…` whose non-standard arg parser breaks if Node
+   * wraps the token in quotes — see {@link revealCommand}.
+   */
+  readonly windowsVerbatimArguments?: boolean;
 }
 
 /** Reveal/select a file in the OS file manager (spec §7 local hit). */
@@ -19,9 +25,19 @@ export function revealCommand(
   filePath: string,
 ): OsCommand {
   switch (platform) {
-    case "win32":
-      // explorer interprets /select,<path>; pass as a single token.
-      return { cmd: "explorer.exe", args: [`/select,${filePath}`] };
+    case "win32": {
+      // explorer.exe wants `/select,<path>` as one token, the path quoted (so
+      // names with spaces survive) and back-slashed (it rejects forward
+      // slashes). Node must NOT re-quote the token (windowsVerbatimArguments),
+      // or explorer can't parse it and silently opens the default folder
+      // (Documents) instead of selecting the file.
+      const winPath = filePath.replace(/\//g, "\\");
+      return {
+        cmd: "explorer.exe",
+        args: [`/select,"${winPath}"`],
+        windowsVerbatimArguments: true,
+      };
+    }
     case "darwin":
       return { cmd: "open", args: ["-R", filePath] };
     default:
@@ -62,6 +78,7 @@ export const spawnRunner: CommandRunner = (command) =>
     const child = spawn(command.cmd, [...command.args], {
       detached: true,
       stdio: "ignore",
+      windowsVerbatimArguments: command.windowsVerbatimArguments ?? false,
     });
     child.on("error", reject);
     child.unref();

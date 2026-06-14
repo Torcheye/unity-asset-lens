@@ -1,5 +1,6 @@
 import { h } from "../dom.js";
 import { MONO, badgeStyle, pillStyle } from "../theme.js";
+import { bucketIcon } from "../icon.js";
 import { highlightPath, tokenize } from "../format.js";
 
 const MAX_HITS = 8;
@@ -34,7 +35,12 @@ function hitRow(hit, terms) {
     { style: { display: "flex", alignItems: "center", gap: "10px", padding: "6px 14px", borderTop: "1px solid #1f1f25" }, hover: { background: "#212128" } },
     h("span", { style: { fontFamily: MONO, fontSize: "0.6875rem", color: "#5f5f6a", minWidth: "42px" } }, `[${hit.fileId}]`),
     h("span", { style: { fontFamily: MONO, fontSize: "0.7813rem", letterSpacing: "-0.1px", flex: "1", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, ...highlightPath(hit.fullPath, terms)),
-    h("span", { style: pillStyle(hit.typeBucket) }, hit.typeBucket),
+    h(
+      "span",
+      { style: { ...pillStyle(hit.typeBucket), display: "inline-flex", alignItems: "center", gap: "4px" } },
+      bucketIcon(hit.typeBucket, 12),
+      hit.typeBucket,
+    ),
   );
 }
 

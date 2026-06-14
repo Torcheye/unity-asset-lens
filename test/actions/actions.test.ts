@@ -9,7 +9,16 @@ describe("revealCommand", () => {
   it("uses explorer /select on Windows", () => {
     expect(revealCommand("win32", "C:\\cache\\Pack.unitypackage")).toEqual({
       cmd: "explorer.exe",
-      args: ["/select,C:\\cache\\Pack.unitypackage"],
+      args: ['/select,"C:\\cache\\Pack.unitypackage"'],
+      windowsVerbatimArguments: true,
+    });
+  });
+
+  it("quotes paths with spaces and back-slashes forward slashes (Windows)", () => {
+    expect(revealCommand("win32", "C:/cache/My SFX Pack.unitypackage")).toEqual({
+      cmd: "explorer.exe",
+      args: ['/select,"C:\\cache\\My SFX Pack.unitypackage"'],
+      windowsVerbatimArguments: true,
     });
   });
 

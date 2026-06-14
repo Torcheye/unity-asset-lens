@@ -1,5 +1,6 @@
 import { h, s } from "../dom.js";
 import { MONO, colorForBucket } from "../theme.js";
+import { bucketIcon } from "../icon.js";
 import { formatInt } from "../format.js";
 
 function sectionLabel(text, marginTop) {
@@ -67,6 +68,7 @@ function assetTypesCard(buckets, actions) {
       "button",
       { onClick: () => actions.setType(b.bucket), style: { display: "flex", alignItems: "center", gap: "8px", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left", width: "100%" } },
       h("span", { style: { width: "9px", height: "9px", borderRadius: "2px", background: colorForBucket(b.bucket), flexShrink: 0 } }),
+      bucketIcon(b.bucket, 15),
       h("span", { style: { fontSize: "0.75rem", color: "#c4c4cd", textTransform: "capitalize" } }, b.bucket),
       h("span", { style: { flex: "1" } }),
       h("span", { style: { fontSize: "0.7188rem", color: "#7a7a85", fontFamily: MONO } }, `${total ? Math.round((b.count / total) * 100) : 0}%`),

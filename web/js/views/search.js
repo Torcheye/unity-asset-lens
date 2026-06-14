@@ -1,5 +1,6 @@
 import { h, s } from "../dom.js";
 import { MONO, chipBase, chipActive } from "../theme.js";
+import { bucketIcon } from "../icon.js";
 import { formatInt } from "../format.js";
 import { OverviewView } from "./overview.js";
 import { ResultsView } from "./results.js";
@@ -52,9 +53,18 @@ function searchBar(state, actions) {
 }
 
 function filters(state, actions) {
-  const chips = TYPES.map(([key, label]) =>
-    h("button", { onClick: () => actions.setType(key), style: state.type === key ? chipActive : chipBase }, label),
-  );
+  const chips = TYPES.map(([key, label]) => {
+    const style = state.type === key ? chipActive : chipBase;
+    if (key === "all") {
+      return h("button", { onClick: () => actions.setType(key), style }, label);
+    }
+    return h(
+      "button",
+      { onClick: () => actions.setType(key), style: { ...style, display: "inline-flex", alignItems: "center", gap: "5px" } },
+      bucketIcon(key, 14),
+      label,
+    );
+  });
 
   const localStyle = state.localOnly
     ? { padding: "4px 11px", fontSize: "0.75rem", fontWeight: 500, borderRadius: "7px", cursor: "pointer", border: "1px solid rgba(70,217,160,0.3)", background: "rgba(70,217,160,0.13)", color: "#7fe3b6" }
