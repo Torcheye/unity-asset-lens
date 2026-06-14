@@ -221,9 +221,6 @@ npm run typecheck
 node tools/gen-screenshots.mjs   # regenerate the README screenshots (docs/img/)
 ```
 
-Architecture and phase details live in
-[`unity-asset-search-spec.md`](./unity-asset-search-spec.md).
-
 ## License
 
 MIT — see [LICENSE](./LICENSE).

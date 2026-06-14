@@ -15,3 +15,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.tsbuildinfo
+CLAUDE.md
+
+# Kept local only (not published to the public repo)
+/design/
+/tools/
+/unity-asset-search-spec.md
