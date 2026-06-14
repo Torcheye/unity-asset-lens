@@ -117,6 +117,8 @@ export interface ImportOptions {
   readonly onProgress?: (message: string) => void;
   /** Politeness delay between product-page GETs, in ms. */
   readonly delayMs?: number;
+  /** Max product pages fetched in parallel. */
+  readonly concurrency?: number;
 }
 
 export class AssetLensEngine {
@@ -175,6 +177,7 @@ export class AssetLensEngine {
     return enrichProducts(this.repo, this.#http, {
       ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
       ...(opts.delayMs !== undefined ? { delayMs: opts.delayMs } : {}),
+      ...(opts.concurrency !== undefined ? { concurrency: opts.concurrency } : {}),
     });
   }
 
@@ -190,6 +193,7 @@ export class AssetLensEngine {
       readonly force?: boolean;
       readonly limit?: number;
       readonly delayMs?: number;
+      readonly concurrency?: number;
       readonly onProgress?: (message: string) => void;
     } = {},
   ): Promise<EnrichResult> {
@@ -197,6 +201,7 @@ export class AssetLensEngine {
     return enrichProducts(this.repo, this.#http, {
       ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
       ...(opts.delayMs !== undefined ? { delayMs: opts.delayMs } : {}),
+      ...(opts.concurrency !== undefined ? { concurrency: opts.concurrency } : {}),
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
       ...(opts.force ? { force: true } : {}),
     });

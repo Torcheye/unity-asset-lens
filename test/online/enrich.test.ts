@@ -72,4 +72,41 @@ describe("enrichProducts (spec §5.5)", () => {
     expect(result.attempted).toBe(1);
     expect(result.enriched).toBe(0);
   });
+
+  it("fetches in parallel without exceeding the concurrency cap", async () => {
+    const repo = memoryRepo();
+    const products = Array.from({ length: 12 }, (_, i) =>
+      catalogProduct({ id: String(i), name: `P${i}` }),
+    );
+    repo.importCatalog(products, 1);
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    // Each request stays "open" for a turn of the event loop so overlap is real.
+    const http: typeof import("../../src/store/http.js").nodeHttp = async (
+      url,
+    ) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      const id = url.split("/").pop()!;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => relatedSection([`kw-${id}`]),
+        json: async () => ({}),
+        setCookies: () => [],
+      };
+    };
+
+    const result = await enrichProducts(repo, http, { now: 2, concurrency: 4 });
+
+    expect(result.attempted).toBe(12);
+    expect(result.enriched).toBe(12);
+    expect(maxInFlight).toBeGreaterThan(1); // genuinely parallel
+    expect(maxInFlight).toBeLessThanOrEqual(4); // but capped
+    // Every product's keyword landed regardless of completion order.
+    expect(search(repo.db, "kw-7").map((h) => h.productId)).toContain("7");
+  });
 });

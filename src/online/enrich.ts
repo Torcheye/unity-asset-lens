@@ -11,7 +11,18 @@ import { fetchProductMetadata } from "../store/productPage.js";
 
 export interface EnrichOptions {
   readonly limit?: number;
+  /**
+   * Politeness pause (ms) a worker waits *after* a fetch before claiming the
+   * next product. With {@link concurrency} workers the effective request rate
+   * is roughly `concurrency / (delayMs + latency)`.
+   */
   readonly delayMs?: number;
+  /**
+   * Max product pages fetched in parallel (default {@link DEFAULT_CONCURRENCY}).
+   * Each page is an independent, auth-free GET, so the work is network-bound and
+   * scales near-linearly with this up to the point of straining the store.
+   */
+  readonly concurrency?: number;
   readonly now?: number;
   /** Re-fetch every product, not just those missing keywords (refresh). */
   readonly force?: boolean;
@@ -24,6 +35,9 @@ export interface EnrichResult {
   readonly errors: ReadonlyArray<{ productId: string; error: string }>;
 }
 
+/** Parallel product-page fetches. Polite to the store, ~6× a serial run. */
+const DEFAULT_CONCURRENCY = 6;
+
 const sleep = (ms: number): Promise<void> =>
   ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();
 
@@ -35,32 +49,44 @@ export async function enrichProducts(
   const now = opts.now ?? Date.now();
   const log = opts.onProgress ?? (() => {});
   const delayMs = opts.delayMs ?? 0;
+  const concurrency = Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY);
   const ids = repo.listProductsToEnrich(opts.limit, opts.force ?? false);
 
   let enriched = 0;
   const errors: Array<{ productId: string; error: string }> = [];
 
-  for (let i = 0; i < ids.length; i++) {
-    const productId = ids[i]!;
-    try {
-      log(`Enriching ${productId}…`);
-      const meta = await fetchProductMetadata(http, productId);
-      if (meta.keywords.length > 0 || meta.category) {
-        repo.enrichProduct(
-          productId,
-          {
-            ...(meta.category ? { category: meta.category } : {}),
-            tags: meta.keywords,
-          },
-          now,
-        );
-        enriched += 1;
+  // Shared cursor over `ids`. JS is single-threaded, so `next++`, the counters,
+  // and each synchronous `repo.enrichProduct` write never interleave between
+  // awaits — no locking needed despite the concurrent fetches.
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < ids.length) {
+      const productId = ids[next++]!;
+      try {
+        log(`Enriching ${productId}…`);
+        const meta = await fetchProductMetadata(http, productId);
+        if (meta.keywords.length > 0 || meta.category) {
+          repo.enrichProduct(
+            productId,
+            {
+              ...(meta.category ? { category: meta.category } : {}),
+              tags: meta.keywords,
+            },
+            now,
+          );
+          enriched += 1;
+        }
+      } catch (err) {
+        errors.push({ productId, error: (err as Error).message });
       }
-    } catch (err) {
-      errors.push({ productId, error: (err as Error).message });
+      if (next < ids.length) await sleep(delayMs);
     }
-    if (i < ids.length - 1) await sleep(delayMs);
   }
+
+  const pool = Array.from({ length: Math.min(concurrency, ids.length) }, () =>
+    worker(),
+  );
+  await Promise.all(pool);
 
   return { attempted: ids.length, enriched, errors };
 }

@@ -24,8 +24,8 @@ Usage:
                                         Index downloaded .unitypackage cache (spec §5.2/3)
   assetlens fetch [--cookie <hdr>] [--limit N] [--delay MS]
                                         Fetch online file trees via PreviewAssets (spec §5.4)
-  assetlens enrich [--force] [--limit N] [--delay MS]
-                                        Fetch store-page Related keywords (--force re-pulls all; spec §3.4)
+  assetlens enrich [--force] [--limit N] [--delay MS] [--concurrency N]
+                                        Fetch store-page Related keywords in parallel (--force re-pulls all; spec §3.4)
   assetlens search <query...> [--type T] [--local] [--publisher P] [--limit N] [--json]
                                         Search files by name + path (spec §7)
   assetlens reveal <fileId>             Reveal a downloaded file in the file manager
@@ -72,7 +72,7 @@ async function run(argv: string[]): Promise<number> {
         const result = await engine.loginAndImport({
           remember: !flagBool(flags, "no-remember"),
           onProgress: progress,
-          delayMs: flagInt(flags, "delay") ?? 250,
+          delayMs: flagInt(flags, "delay") ?? 150,
           ...(timeoutSec !== undefined
             ? { loginTimeoutMs: timeoutSec * 1000 }
             : {}),
@@ -99,7 +99,7 @@ async function run(argv: string[]): Promise<number> {
         if (!file) throw new Error("Usage: assetlens import <file.json>");
         const { imported, skipped, keywords } = await engine.importCatalogFile(
           file,
-          { onProgress: progress, delayMs: flagInt(flags, "delay") ?? 250 },
+          { onProgress: progress, delayMs: flagInt(flags, "delay") ?? 150 },
         );
         process.stdout.write(
           `Imported ${imported} products${skipped ? ` (skipped ${skipped} malformed)` : ""}` +
@@ -149,7 +149,10 @@ async function run(argv: string[]): Promise<number> {
           ...(flagInt(flags, "limit") !== undefined
             ? { limit: flagInt(flags, "limit") }
             : {}),
-          delayMs: flagInt(flags, "delay") ?? 250,
+          delayMs: flagInt(flags, "delay") ?? 150,
+          ...(flagInt(flags, "concurrency") !== undefined
+            ? { concurrency: flagInt(flags, "concurrency") }
+            : {}),
           onProgress: progress,
         });
         process.stdout.write(
