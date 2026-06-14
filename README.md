@@ -217,8 +217,6 @@ npm run cli -- <command>   # run the CLI from source, no build needed
 npm test                   # unit test suite (vitest)
 npm run test:coverage
 npm run typecheck
-
-node tools/gen-screenshots.mjs   # regenerate the README screenshots (docs/img/)
 ```
 
 ## License
