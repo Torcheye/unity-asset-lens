@@ -19,8 +19,8 @@ function metric(label, value) {
   return h(
     "div",
     {},
-    h("div", { style: { fontSize: "11px", color: "#76767f", marginBottom: "2px" } }, label),
-    h("div", { style: { fontFamily: MONO, fontSize: "12px", color: "#b7b7c1" } }, value),
+    h("div", { style: { fontSize: "0.6875rem", color: "#76767f", marginBottom: "2px" } }, label),
+    h("div", { style: { fontFamily: MONO, fontSize: "0.75rem", color: "#b7b7c1" } }, value),
   );
 }
 
@@ -41,7 +41,7 @@ export function Sidebar(state, actions) {
         flexDirection: "column", padding: "12px 10px",
       },
     },
-    h("div", { style: { fontSize: "10.5px", fontWeight: 600, letterSpacing: "0.7px", color: "#5a5a64", padding: "4px 8px 9px" } }, "WORKSPACE"),
+    h("div", { style: { fontSize: "0.6563rem", fontWeight: 600, letterSpacing: "0.7px", color: "#5a5a64", padding: "4px 8px 9px" } }, "WORKSPACE"),
     h("button", { onClick: actions.goSearch, style: state.view === "search" ? navActive : navBase }, searchIcon(), "Search"),
     h(
       "button",
@@ -56,7 +56,7 @@ export function Sidebar(state, actions) {
     h(
       "div",
       { style: { borderTop: "1px solid #232329", padding: "13px 8px 4px" } },
-      h("div", { style: { fontSize: "10.5px", fontWeight: 600, letterSpacing: "0.7px", color: "#5a5a64", marginBottom: "10px" } }, "INDEX"),
+      h("div", { style: { fontSize: "0.6563rem", fontWeight: 600, letterSpacing: "0.7px", color: "#5a5a64", marginBottom: "10px" } }, "INDEX"),
       h(
         "div",
         { style: { display: "flex", flexDirection: "column", gap: "11px" } },
@@ -73,7 +73,7 @@ export function Sidebar(state, actions) {
           },
         },
         h("span", { style: { width: "7px", height: "7px", borderRadius: "50%", background: "#46d9a0", animation: "alpulse 2.4s ease-in-out infinite" } }),
-        h("div", { style: { fontSize: "11.5px", color: "#9a9aa4" } }, "Watching cache"),
+        h("div", { style: { fontSize: "0.7188rem", color: "#9a9aa4" } }, "Watching cache"),
       ),
     ),
   );

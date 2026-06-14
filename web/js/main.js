@@ -197,7 +197,7 @@ function setStep(name, patch) {
 function App(state) {
   return h(
     "div",
-    { style: { display: "flex", flexDirection: "column", height: "100vh", width: "100vw", background: "#161619", color: "#e7e7ea", fontSize: "13px", overflow: "hidden" } },
+    { style: { display: "flex", flexDirection: "column", height: "100vh", width: "100vw", background: "#161619", color: "#e7e7ea", fontSize: "1rem", overflow: "hidden" } },
     Header(state),
     h(
       "div",

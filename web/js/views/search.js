@@ -32,7 +32,7 @@ function searchBar(state, actions) {
       autocomplete: "off",
       spellcheck: "false",
       style: {
-        width: "100%", height: "42px", padding: "0 40px 0 39px", fontSize: "14.5px",
+        width: "100%", height: "42px", padding: "0 40px 0 39px", fontSize: "0.9063rem",
         color: "#ededf1", background: "#1c1c21", border: "1px solid #2e2e36",
         borderRadius: "10px", outline: "none",
       },
@@ -43,7 +43,7 @@ function searchBar(state, actions) {
     children.push(
       h(
         "button",
-        { onClick: actions.clearQuery, style: { position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", color: "#8a8a96", background: "#26262d", border: "1px solid #33333b", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }, hover: { color: "#ededf1" } },
+        { onClick: actions.clearQuery, style: { position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", color: "#8a8a96", background: "#26262d", border: "1px solid #33333b", borderRadius: "6px", cursor: "pointer", fontSize: "0.75rem" }, hover: { color: "#ededf1" } },
         "✕",
       ),
     );
@@ -57,8 +57,8 @@ function filters(state, actions) {
   );
 
   const localStyle = state.localOnly
-    ? { padding: "4px 11px", fontSize: "12px", fontWeight: 500, borderRadius: "7px", cursor: "pointer", border: "1px solid rgba(70,217,160,0.3)", background: "rgba(70,217,160,0.13)", color: "#7fe3b6" }
-    : { padding: "4px 11px", fontSize: "12px", fontWeight: 500, borderRadius: "7px", cursor: "pointer", border: "1px solid #2c2c33", background: "transparent", color: "#9a9aa4" };
+    ? { padding: "4px 11px", fontSize: "0.75rem", fontWeight: 500, borderRadius: "7px", cursor: "pointer", border: "1px solid rgba(70,217,160,0.3)", background: "rgba(70,217,160,0.13)", color: "#7fe3b6" }
+    : { padding: "4px 11px", fontSize: "0.75rem", fontWeight: 500, borderRadius: "7px", cursor: "pointer", border: "1px solid #2c2c33", background: "transparent", color: "#9a9aa4" };
 
   const publishers = state.overview?.publishers || [];
   const options = [h("option", { value: "all" }, "All publishers")].concat(
@@ -66,7 +66,7 @@ function filters(state, actions) {
   );
   const select = h(
     "select",
-    { value: state.publisher, onChange: actions.setPublisher, style: { appearance: "none", "-webkit-appearance": "none", background: "#1c1c21", color: "#c7c7d0", border: "1px solid #2c2c33", borderRadius: "7px", padding: "5px 26px 5px 11px", fontSize: "12px", cursor: "pointer", outline: "none" } },
+    { value: state.publisher, onChange: actions.setPublisher, style: { appearance: "none", "-webkit-appearance": "none", background: "#1c1c21", color: "#c7c7d0", border: "1px solid #2c2c33", borderRadius: "7px", padding: "5px 26px 5px 11px", fontSize: "0.75rem", cursor: "pointer", outline: "none" } },
     ...options,
   );
 
@@ -80,10 +80,10 @@ function filters(state, actions) {
       "div",
       { style: { position: "relative", display: "inline-flex", alignItems: "center" } },
       select,
-      h("span", { style: { position: "absolute", right: "9px", pointerEvents: "none", color: "#6a6a74", fontSize: "9px" } }, "▼"),
+      h("span", { style: { position: "absolute", right: "9px", pointerEvents: "none", color: "#6a6a74", fontSize: "0.5625rem" } }, "▼"),
     ),
     h("div", { style: { flex: "1" } }),
-    h("span", { style: { fontSize: "12px", color: "#7a7a85", fontFamily: MONO } }, resultCountLabel(state)),
+    h("span", { style: { fontSize: "0.75rem", color: "#7a7a85", fontFamily: MONO } }, resultCountLabel(state)),
   );
 }
 
