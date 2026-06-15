@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import { describe, it, expect, afterEach } from "vitest";
 import { AssetLensEngine } from "../src/engine.js";
 import type { PathEnv } from "../src/config/paths.js";
@@ -88,6 +89,66 @@ describe("AssetLensEngine — registered local folders", () => {
     try {
       expect(await engine.pickFolder(async () => "C:/Chosen")).toBe("C:/Chosen");
       expect(await engine.pickFolder(async () => "")).toBeNull();
+    } finally {
+      engine.close();
+    }
+  });
+
+  it("refuses to download or open a folder product (no store page)", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    await writeFileAt(dir, "x.fbx", Buffer.alloc(4));
+
+    const engine = openEngine();
+    try {
+      const info = await engine.addLocalFolder(dir, { now: 1 });
+      const noop = async () => {};
+      await expect(engine.download(info.productId, noop)).rejects.toThrow(/folder/i);
+      await expect(engine.openStoreForProduct(info.productId, noop)).rejects.toThrow(
+        /folder/i,
+      );
+    } finally {
+      engine.close();
+    }
+  });
+
+  it("revealing a folder file that has been deleted reports a clear error, not success", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    const filePath = await writeFileAt(dir, "gone.wav", Buffer.alloc(4));
+
+    const engine = openEngine();
+    try {
+      await engine.addLocalFolder(dir, { now: 1 });
+      const fileId = engine.search("gone")[0]!.hits[0]!.fileId;
+      await rm(filePath); // the on-disk file disappears, index row remains
+
+      let ran = false;
+      await expect(
+        engine.revealFile(fileId, async () => {
+          ran = true;
+        }),
+      ).rejects.toThrow(/no longer on disk/i);
+      expect(ran).toBe(false); // never spawned a reveal for a missing file
+    } finally {
+      engine.close();
+    }
+  });
+
+  it("rescan keeps & warns instead of wiping the index when the folder vanished", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    await writeFileAt(dir, "keep.fbx", Buffer.alloc(6));
+
+    const engine = openEngine();
+    try {
+      await engine.addLocalFolder(dir, { now: 1 });
+      await cleanup(); // folder gone before the rescan
+
+      const info = await engine.rescanLocalFolder(dir, { now: 2 });
+      expect(info.status).toBe("missing");
+      // The previously-indexed file is preserved, not wiped to zero.
+      expect(engine.search("keep")).toHaveLength(1);
     } finally {
       engine.close();
     }

@@ -55,9 +55,10 @@ function progress(message: string): void {
 
 /** Human-readable byte size for CLI output (e.g. 1536 → "1.5 KB"). */
 function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
+  const bytes = Number.isFinite(n) ? n : 0;
+  if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB", "TB"];
-  let value = n / 1024;
+  let value = bytes / 1024;
   let i = 0;
   while (value >= 1024 && i < units.length - 1) {
     value /= 1024;

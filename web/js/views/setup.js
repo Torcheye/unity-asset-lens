@@ -324,7 +324,7 @@ function folderRow(folder, actions, busy) {
       `${formatBytes(folder.totalSize)} · ${formatInt(folder.fileCount)} files`,
     ),
     h("button", { onClick: () => { if (!busy) actions.rescanFolder(folder.path); }, disabled: busy ? "" : null, title: "Re-scan", style: iconButtonStyle(busy) }, "↻"),
-    h("button", { onClick: () => actions.removeFolder(folder.path), title: "Remove", style: iconButtonStyle(false) }, "✕"),
+    h("button", { onClick: () => { if (!busy) actions.removeFolder(folder.path); }, disabled: busy ? "" : null, title: "Remove", style: iconButtonStyle(busy) }, "✕"),
   );
 }
 

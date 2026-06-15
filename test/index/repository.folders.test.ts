@@ -57,4 +57,40 @@ describe("local_folders registry", () => {
     expect(repo.listCatalogProducts().map((p) => p.id)).toEqual(["100"]);
     expect(repo.listPublishers()).toEqual(["RealPub"]); // "/f" path not listed
   });
+
+  it("excludes folder:/local: products from the keyword-enrich queue", () => {
+    const repo = memoryRepo();
+    // A real owned product with no keywords -> belongs in the queue.
+    repo.importCatalog([catalogProduct({ id: "100", name: "Real", publisher: "RealPub" })], 1);
+    // Synthetic products whose ids must never be sent to the store.
+    folderProduct(repo, "folder:/Users/bob/Secret", "/Users/bob/Secret", ["/Users/bob/Secret/x.wav"]);
+    folderProduct(repo, "local:pub/slug", "pub", ["/cache/pub/slug/y.wav"]);
+
+    expect(repo.listProductsToEnrich()).toEqual(["100"]);
+    // Even a forced re-enrich must not pick up the synthetic ids.
+    expect(repo.listProductsToEnrich(undefined, true)).toEqual(["100"]);
+  });
+
+  it("does not surface a folder as a product-only hit, but its files are searchable", () => {
+    const repo = memoryRepo();
+    // Folder path contains the token "users"; without the fix the path-as-
+    // publisher would match the product-only pass and float to the top.
+    folderProduct(repo, "folder:/Users/Assets", "/Users/Assets", ["/Users/Assets/crate.fbx"]);
+
+    expect(searchProducts(repo.db, "users")).toHaveLength(0);
+    // The real files are still found at the file level.
+    expect(searchFiles(repo.db, "crate")).toHaveLength(1);
+  });
+
+  it("excludes folder products from the library snapshot stats", () => {
+    const repo = memoryRepo();
+    repo.importCatalog([catalogProduct({ id: "100", name: "Real", publisher: "RealPub" })], 1);
+    folderProduct(repo, "folder:/f", "/f", ["/f/a.wav", "/f/b.wav"]);
+
+    const stats = repo.stats();
+    expect(stats.products).toBe(1); // folder not counted as an owned product
+    expect(stats.files).toBe(0); // folder files not counted as cache "files indexed"
+    expect(stats.localProducts).toBe(0);
+    expect(stats.deepProducts).toBe(0);
+  });
 });

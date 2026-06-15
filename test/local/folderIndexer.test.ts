@@ -116,4 +116,19 @@ describe("indexFolder", () => {
     expect(row.added_at).toBe(100); // first add preserved
     expect(row.scanned_at).toBe(200); // refreshed
   });
+
+  it("throws instead of wiping the index when a re-scanned folder has vanished", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    await writeFileAt(dir, "a.txt", "a");
+
+    const repo = memoryRepo();
+    await indexFolder(repo, dir, 100);
+    expect(searchFiles(repo.db, "a")).toHaveLength(1);
+
+    await cleanup(); // folder gone -> walk yields 0 files
+    // indexFolder must refuse to commit an empty index over the existing one.
+    await expect(indexFolder(repo, dir, 200)).rejects.toThrow(/no longer readable/i);
+    expect(searchFiles(repo.db, "a")).toHaveLength(1); // index untouched
+  });
 });

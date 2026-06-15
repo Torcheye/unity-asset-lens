@@ -377,7 +377,17 @@ export class Repository {
    * change (existing rows would otherwise never refresh).
    */
   listProductsToEnrich(limit?: number, force = false): string[] {
-    const where = force ? "" : " WHERE tags IS NULL OR tags = ''";
+    // Synthetic cache (`local:`) and registered-folder (`folder:`) products have
+    // no real store page, so enriching them only ever 404s — and a `folder:` id
+    // embeds the user's absolute local path, which must never be encoded into a
+    // store request. Exclude both from the keyword-fetch queue in every mode
+    // (mirrors listCatalogProducts); without this they stay tags=NULL forever and
+    // are re-fetched on every login/import/enrich.
+    const synthetic =
+      "product_id NOT LIKE 'local:%' AND product_id NOT LIKE 'folder:%'";
+    const where = force
+      ? ` WHERE ${synthetic}`
+      : ` WHERE (tags IS NULL OR tags = '') AND ${synthetic}`;
     const sql =
       `SELECT product_id FROM products${where}` + (limit ? " LIMIT ?" : "");
     const rows = (limit
@@ -482,12 +492,18 @@ export class Repository {
   stats(): IndexStats {
     const one = (sql: string): number =>
       (this.#db.prepare(sql).get() as { n: number }).n;
+    // Registered local folders are synthetic `folder:` products — not owned store
+    // products and not scanned cache packages. Exclude them from the library
+    // snapshot counts (they are surfaced separately via listLocalFolders); folder
+    // files are likewise not part of the cache "files indexed" total. Counting
+    // them here would falsely mark the Import/Scan setup steps "done".
+    const NF = "product_id NOT LIKE 'folder:%'";
     return {
-      products: one("SELECT COUNT(*) n FROM products"),
-      files: one("SELECT COUNT(*) n FROM files"),
-      localProducts: one("SELECT COUNT(*) n FROM products WHERE source = 'local'"),
-      onlineProducts: one("SELECT COUNT(*) n FROM products WHERE source = 'online'"),
-      deepProducts: one("SELECT COUNT(*) n FROM products WHERE coverage = 'deep'"),
+      products: one(`SELECT COUNT(*) n FROM products WHERE ${NF}`),
+      files: one(`SELECT COUNT(*) n FROM files WHERE ${NF}`),
+      localProducts: one(`SELECT COUNT(*) n FROM products WHERE source = 'local' AND ${NF}`),
+      onlineProducts: one(`SELECT COUNT(*) n FROM products WHERE source = 'online' AND ${NF}`),
+      deepProducts: one(`SELECT COUNT(*) n FROM products WHERE coverage = 'deep' AND ${NF}`),
     };
   }
 
@@ -629,5 +645,33 @@ export class Repository {
 
   deleteLocalFolder(path: string): void {
     this.#db.prepare("DELETE FROM local_folders WHERE path = ?").run(path);
+  }
+
+  /**
+   * Atomically (re)write a folder's synthetic product + files AND its registry
+   * row in a single transaction. Without this the two writes are independent, so
+   * a crash/error between them could leave a searchable `folder:` product with no
+   * `local_folders` row — an orphan invisible to listLocalFolders and unremovable
+   * via the UI (removeLocalFolder early-returns when the row is absent).
+   */
+  writeFolderIndex(
+    indexed: IndexedProduct,
+    folder: LocalFolderInput,
+    now: number,
+  ): void {
+    const tx = this.#db.transaction(() => {
+      this.writeIndexedProduct(indexed, now);
+      this.upsertLocalFolder(folder);
+    });
+    tx();
+  }
+
+  /** Atomically drop a folder's synthetic product (+ files/FTS) and registry row. */
+  deleteLocalFolderCascade(path: string, productId: string): void {
+    const tx = this.#db.transaction(() => {
+      this.deleteProductCascade(productId);
+      this.deleteLocalFolder(path);
+    });
+    tx();
   }
 }

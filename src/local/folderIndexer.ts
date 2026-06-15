@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { walkFiles } from "./walk.js";
 import { baseNameOf, bucketForPath, extOf } from "../domain/fileType.js";
 import type {
@@ -145,16 +145,33 @@ export async function indexFolder(
   onProgress?: ProgressReporter,
 ): Promise<LocalFolderInfo> {
   const { files, totalSize } = await scanFolder(path, onProgress);
+  // A zero-file result is ambiguous: either a genuinely empty folder, or one
+  // that vanished/became unreadable mid-scan (walkFiles swallows that). Before
+  // replacing a possibly-valid index with nothing, confirm the root is still
+  // readable; if not, throw so the caller keeps the old index and flags the
+  // folder "missing" (keep & warn) rather than wiping it.
+  if (files.length === 0) {
+    try {
+      await readdir(path);
+    } catch {
+      throw new Error(`Folder is no longer readable: ${path}`);
+    }
+  }
   const indexed = buildFolderIndexedProduct(path, files);
-  repo.writeIndexedProduct(indexed, now);
-  repo.upsertLocalFolder({
-    path,
-    productId: indexed.product.id,
-    fileCount: files.length,
-    totalSize,
-    status: "ok",
-    addedAt: now,
-    scannedAt: now,
-  });
+  // Write the product/files and the registry row in ONE transaction, so a
+  // failure can never orphan a searchable product with no registry row.
+  repo.writeFolderIndex(
+    indexed,
+    {
+      path,
+      productId: indexed.product.id,
+      fileCount: files.length,
+      totalSize,
+      status: "ok",
+      addedAt: now,
+      scannedAt: now,
+    },
+    now,
+  );
   return folderInfoFromRow(repo.getLocalFolder(path)!);
 }

@@ -52,12 +52,15 @@ export const captureRunner: CaptureRunner = (command) =>
     const child = spawn(command.cmd, [...command.args], {
       windowsVerbatimArguments: command.windowsVerbatimArguments ?? false,
     });
-    let out = "";
-    child.stdout?.on("data", (chunk) => {
-      out += chunk.toString();
+    // Collect raw Buffers and decode once at the end: a path with non-ASCII
+    // characters can have a multi-byte UTF-8 sequence split across two chunks,
+    // and per-chunk `.toString()` would corrupt it (yielding U+FFFD).
+    const chunks: Buffer[] = [];
+    child.stdout?.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
     });
     child.on("error", reject);
-    child.on("close", () => resolve(out));
+    child.on("close", () => resolve(Buffer.concat(chunks).toString("utf8")));
   });
 
 /**

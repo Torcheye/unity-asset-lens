@@ -165,7 +165,14 @@ function startFolderScan(path, mode) {
         "#46d9a0",
       );
     },
-    onError: (message) => setState({ folderScan: null, folderError: message }),
+    onError: (message) => {
+      setState({ folderScan: null, folderError: message });
+      // The server may have committed the index just before the stream dropped
+      // (e.g. a transient connection error after writeIndexedProduct). Refresh
+      // so a folder that actually got added isn't hidden until a manual reload.
+      void loadFolders();
+      void loadOverview(false);
+    },
   });
 }
 
@@ -282,9 +289,13 @@ const actions = {
     startFolderScan(path, "rescan");
   },
   async removeFolder(path) {
+    // Don't remove while a scan is in flight: an in-flight (re)scan of the same
+    // folder would re-create the product + registry row after the delete,
+    // silently resurrecting the folder the user just removed.
+    if (getState().folderScan) return;
     try {
       const { folders } = await api.removeFolder(path);
-      setState({ folders });
+      setState({ folders, folderError: null });
       void loadOverview(false);
     } catch (err) {
       setState({ folderError: err.message });
