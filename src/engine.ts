@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { GroupedSearchResult } from "./domain/types.js";
 import type { ProgressReporter } from "./domain/progress.js";
 import {
@@ -27,6 +28,16 @@ import {
 } from "./local/localIndexer.js";
 import { statPackage } from "./local/scanCache.js";
 import { buildCatalogMatcher } from "./local/matchCatalog.js";
+import {
+  indexFolder,
+  folderInfoFromRow,
+  isFolderProductId,
+  type LocalFolderInfo,
+} from "./local/folderIndexer.js";
+import {
+  pickFolder as pickFolderDialog,
+  type CaptureRunner,
+} from "./actions/folderPicker.js";
 import { fetchAnonymousSession, type StoreSession } from "./store/csrf.js";
 import { createStoreClient } from "./store/graphql.js";
 import { nodeHttp, type HttpClient } from "./store/http.js";
@@ -439,6 +450,113 @@ export class AssetLensEngine {
     );
   }
 
+  // ---- registered local folders (spec §8 local-web UI) ---------------------
+
+  /**
+   * Open the native OS folder picker and return the chosen absolute path, or
+   * null if the user cancelled. GUI-only; the CLI takes an explicit path.
+   * The runner is injectable for testing.
+   */
+  pickFolder(runner?: CaptureRunner): Promise<string | null> {
+    return pickFolderDialog(this.#env.platform, runner);
+  }
+
+  /**
+   * Register and scan a local folder (outside the Asset Store cache), indexing
+   * its loose files as a synthetic deep `local` product — searchable by path
+   * and name only. Re-adding the same path re-scans it (last-write-wins).
+   * Throws if the path is not an existing directory.
+   */
+  async addLocalFolder(
+    path: string,
+    opts: { now?: number; onProgress?: ProgressReporter } = {},
+  ): Promise<LocalFolderInfo> {
+    // Canonicalise to an absolute path so a relative CLI argument doesn't record
+    // a cwd-dependent key (the GUI picker already passes an absolute path). This
+    // is the id the folder is registered/removed/re-scanned under.
+    const abs = resolve(path);
+    let st;
+    try {
+      st = await stat(abs);
+    } catch {
+      throw new Error(`No such folder: ${path}`);
+    }
+    if (!st.isDirectory()) throw new Error(`Not a folder: ${path}`);
+    return indexFolder(this.repo, abs, opts.now ?? Date.now(), opts.onProgress);
+  }
+
+  /**
+   * Re-scan an already-registered folder. If its path is no longer a directory
+   * it is flagged `missing` (its existing files stay searchable) instead of
+   * failing — the "keep & warn" behaviour.
+   */
+  async rescanLocalFolder(
+    path: string,
+    opts: { now?: number; onProgress?: ProgressReporter } = {},
+  ): Promise<LocalFolderInfo> {
+    const abs = resolve(path);
+    const row = this.repo.getLocalFolder(abs);
+    if (!row) throw new Error(`Folder not registered: ${path}`);
+    if (!(await this.#isDirectory(abs))) {
+      this.repo.setLocalFolderStatus(abs, "missing");
+      return folderInfoFromRow(this.repo.getLocalFolder(abs)!);
+    }
+    try {
+      return await indexFolder(
+        this.repo,
+        abs,
+        opts.now ?? Date.now(),
+        opts.onProgress,
+      );
+    } catch (err) {
+      // If the folder vanished mid-scan, indexFolder threw before wiping the
+      // existing index — keep & warn rather than failing or destroying it.
+      if (!(await this.#isDirectory(abs))) {
+        this.repo.setLocalFolderStatus(abs, "missing");
+        return folderInfoFromRow(this.repo.getLocalFolder(abs)!);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * List registered folders, re-validating each path and flipping its status to
+   * `ok`/`missing` as needed. Files of a now-missing folder are kept searchable
+   * (the user removes the folder explicitly). Paths are stat'd in parallel so a
+   * single slow/offline folder doesn't serially stall the whole list.
+   */
+  async listLocalFolders(): Promise<LocalFolderInfo[]> {
+    const rows = this.repo.listLocalFolders();
+    const checked = await Promise.all(
+      rows.map(async (row) => ({
+        row,
+        status: ((await this.#isDirectory(row.path))
+          ? "ok"
+          : "missing") as "ok" | "missing",
+      })),
+    );
+    return checked.map(({ row, status }) => {
+      if (status !== row.status) this.repo.setLocalFolderStatus(row.path, status);
+      return folderInfoFromRow({ ...row, status });
+    });
+  }
+
+  /** Unregister a folder: drop its synthetic product + files and registry row. */
+  removeLocalFolder(path: string): void {
+    const abs = resolve(path);
+    const row = this.repo.getLocalFolder(abs);
+    if (!row) return;
+    this.repo.deleteLocalFolderCascade(abs, row.product_id);
+  }
+
+  async #isDirectory(path: string): Promise<boolean> {
+    try {
+      return (await stat(path)).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
   // ---- online content fetch (spec §5.4) ------------------------------------
 
   /** Build an anonymous CSRF session for PreviewAssets (no login). */
@@ -476,14 +594,36 @@ export class AssetLensEngine {
   ): Promise<OsCommand> {
     const file = this.repo.getFile(fileId);
     if (!file) throw new Error(`No file with id ${fileId}`);
-    if (!file.local_path) {
+    // A registered-folder file exists on disk at its own `full_path`, so reveal
+    // that exact file. Cache/online products instead reveal the downloaded
+    // `.unitypackage` (the individual asset lives inside the archive, not on disk).
+    const isFolderFile = isFolderProductId(file.product_id);
+    const target = isFolderFile ? file.full_path : file.local_path;
+    if (!target) {
       throw new Error(
         "This file's product is not downloaded yet — use `download` first.",
       );
     }
-    const command = revealCommand(this.#env.platform, file.local_path);
+    // A registered-folder file is kept searchable even after the folder is
+    // flagged `missing`, so the on-disk file may be gone. Reveal nothing and
+    // report a clear error rather than a misleading "success" toast.
+    await this.#assertOnDisk(target, isFolderFile);
+    const command = revealCommand(this.#env.platform, target);
     await runner(command);
     return command;
+  }
+
+  /** Throw a friendly error if a reveal target no longer exists on disk. */
+  async #assertOnDisk(target: string, isFolderFile: boolean): Promise<void> {
+    try {
+      await stat(target);
+    } catch {
+      throw new Error(
+        isFolderFile
+          ? "This file is no longer on disk — the folder may have moved or been deleted. Re-scan or remove the folder."
+          : "This product's downloaded package is no longer on disk — re-download it.",
+      );
+    }
   }
 
   async openStoreForFile(
@@ -509,6 +649,7 @@ export class AssetLensEngine {
         "This product is not downloaded yet — use `download` first.",
       );
     }
+    await this.#assertOnDisk(product.local_path, isFolderProductId(productId));
     const command = revealCommand(this.#env.platform, product.local_path);
     await runner(command);
     return command;
@@ -518,6 +659,11 @@ export class AssetLensEngine {
     productId: string,
     runner: CommandRunner = spawnRunner,
   ): Promise<OsCommand> {
+    // A registered folder is not a store product — its store_url is empty, so
+    // opening it would launch the OS handler on a blank URL.
+    if (isFolderProductId(productId)) {
+      throw new Error("Local folders have no store page.");
+    }
     const product = this.repo.getProduct(productId);
     if (!product) throw new Error(`No product with id ${productId}`);
     const command = openCommand(this.#env.platform, product.store_url);
@@ -529,6 +675,11 @@ export class AssetLensEngine {
     productId: string,
     runner: CommandRunner = spawnRunner,
   ): Promise<OsCommand> {
+    // A registered folder has no kharma id — a download deep-link built from its
+    // synthetic `folder:<path>` id is meaningless to Unity.
+    if (isFolderProductId(productId)) {
+      throw new Error("Local folders aren't store products — nothing to download.");
+    }
     const product = this.repo.getProduct(productId);
     if (!product) throw new Error(`No product with id ${productId}`);
     const command = downloadCommand(

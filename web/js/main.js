@@ -2,6 +2,7 @@ import { h, mount } from "./dom.js";
 import { createStore } from "./store.js";
 import * as api from "./api.js";
 import * as history from "./history.js";
+import { formatInt } from "./format.js";
 import { Header } from "./views/header.js";
 import { Sidebar } from "./views/sidebar.js";
 import { SetupView } from "./views/setup.js";
@@ -30,6 +31,9 @@ const store = createStore({
     scan: { status: "todo" },
     fetch: { status: "todo" },
   },
+  folders: [],
+  folderScan: null,
+  folderError: null,
   toast: null,
   toastVisible: false,
 });
@@ -132,6 +136,46 @@ function loadSession() {
     .catch(() => {}); // status is a non-critical adornment; ignore transient errors
 }
 
+function loadFolders() {
+  return api
+    .getFolders()
+    .then(({ folders }) => setState({ folders }))
+    .catch(() => {}); // optional feature; ignore transient errors
+}
+
+// Scan (add or rescan) a folder, streaming progress into `folderScan`. On done,
+// refresh the folder list and the library snapshot so the new files show up.
+function startFolderScan(path, mode) {
+  setState({
+    folderScan: { path, message: "Scanning…", current: 0, total: 0 },
+    folderError: null,
+  });
+  api.scanFolder(path, mode, {
+    onProgress: (p) =>
+      setState({
+        folderScan: { path, message: p.message, current: p.current ?? 0, total: p.total ?? 0 },
+      }),
+    onDone: (folder) => {
+      setState({ folderScan: null });
+      void loadFolders();
+      void loadOverview(false);
+      showToast(
+        mode === "rescan" ? "Folder re-scanned" : "Folder added",
+        `${folder.name} · ${formatInt(folder.fileCount)} files`,
+        "#46d9a0",
+      );
+    },
+    onError: (message) => {
+      setState({ folderScan: null, folderError: message });
+      // The server may have committed the index just before the stream dropped
+      // (e.g. a transient connection error after writeIndexedProduct). Refresh
+      // so a folder that actually got added isn't hidden until a manual reload.
+      void loadFolders();
+      void loadOverview(false);
+    },
+  });
+}
+
 // ── actions ───────────────────────────────────────────────────────────────────
 function focusSearch() {
   const el = document.getElementById("al-search");
@@ -215,6 +259,48 @@ const actions = {
       showToast("Couldn't complete action", err.message, "#ff8f6b");
     }
   },
+  async revealFile(fileId) {
+    try {
+      const res = await api.revealFile(fileId);
+      showToast("Revealing in file manager", res.display, "#46d9a0");
+    } catch (err) {
+      showToast("Couldn't reveal file", err.message, "#ff8f6b");
+    }
+  },
+  // ── registered local folders ──────────────────────────────────────────────
+  async addFolder() {
+    if (getState().folderScan) return; // a scan is already in flight
+    setState({ folderScan: { path: null, message: "Choose a folder…", current: 0, total: 0 }, folderError: null });
+    let path;
+    try {
+      path = await api.pickFolder();
+    } catch (err) {
+      setState({ folderScan: null, folderError: err.message });
+      return;
+    }
+    if (!path) {
+      setState({ folderScan: null }); // cancelled
+      return;
+    }
+    startFolderScan(path, "add");
+  },
+  rescanFolder(path) {
+    if (getState().folderScan) return;
+    startFolderScan(path, "rescan");
+  },
+  async removeFolder(path) {
+    // Don't remove while a scan is in flight: an in-flight (re)scan of the same
+    // folder would re-create the product + registry row after the delete,
+    // silently resurrecting the folder the user just removed.
+    if (getState().folderScan) return;
+    try {
+      const { folders } = await api.removeFolder(path);
+      setState({ folders, folderError: null });
+      void loadOverview(false);
+    } catch (err) {
+      setState({ folderError: err.message });
+    }
+  },
   runStep(name) {
     if (getState().steps[name]?.status === "running") return;
     setStep(name, { status: "running", progressText: "Starting…", current: 0, total: 0 });
@@ -267,3 +353,4 @@ store.subscribe((state) => mount(root, App(state)));
 mount(root, App(getState()));
 void loadOverview(true);
 void loadSession();
+void loadFolders();

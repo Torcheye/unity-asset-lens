@@ -225,6 +225,12 @@ export function searchProducts(
 
   const filters: string[] = ["products_fts MATCH ?"];
   const params: unknown[] = [match];
+  // Registered folders store their absolute path as `publisher`, which is indexed
+  // here — so a query matching a path segment would surface the folder as a
+  // phantom product-only hit (and the local boost floats it to the top). Their
+  // real files are already found via searchFiles, so exclude `folder:` from the
+  // product-only metadata pass.
+  filters.push("p.product_id NOT LIKE 'folder:%'");
   if (opts.localOnly) filters.push("p.source = 'local'");
   if (opts.publisher) {
     filters.push("p.publisher = ?");

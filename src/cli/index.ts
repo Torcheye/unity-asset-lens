@@ -24,6 +24,10 @@ Usage:
                                         Import owned catalog + store-page keywords from a captured JSON file (spec §5.1)
   assetlens scan [--force] [--no-recurse]
                                         Index downloaded .unitypackage cache (spec §5.2/3)
+  assetlens folder add <path>           Register a local folder and index its files (matched by path/name)
+  assetlens folder list                 List registered local folders (file count, size, validity)
+  assetlens folder remove <path>        Unregister a local folder and drop its files from the index
+  assetlens folder rescan [path]        Re-scan one registered folder, or all if no path given
   assetlens fetch [--cookie <hdr>] [--limit N] [--delay MS]
                                         Fetch online file trees via PreviewAssets (spec §5.4)
   assetlens enrich [--force] [--limit N] [--delay MS] [--concurrency N]
@@ -47,6 +51,20 @@ Types: audio model prefab texture script animation material scene shader font vi
 
 function progress(message: string): void {
   process.stderr.write(`${message}\n`);
+}
+
+/** Human-readable byte size for CLI output (e.g. 1536 → "1.5 KB"). */
+function formatBytes(n: number): string {
+  const bytes = Number.isFinite(n) ? n : 0;
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
 }
 
 /**
@@ -147,6 +165,70 @@ async function run(argv: string[]): Promise<number> {
         );
         for (const e of result.errors) progress(`  ! ${e.filePath}: ${e.error}`);
         return 0;
+      }
+
+      case "folder": {
+        // The GUI opens a native picker; the CLI takes an explicit path so it
+        // stays scriptable. Join the remaining args so unquoted paths with
+        // spaces still work.
+        const sub = positionals[0];
+        const folderPath = positionals.slice(1).join(" ").trim();
+        const summarize = (label: string, info: { name: string; fileCount: number; totalSize: number; path: string; status: string }): void => {
+          process.stdout.write(
+            `${label} ${info.name}: ${info.fileCount} files, ${formatBytes(info.totalSize)}` +
+              `${info.status === "missing" ? " [MISSING]" : ""} (${info.path}).\n`,
+          );
+        };
+        switch (sub) {
+          case "add": {
+            if (!folderPath) throw new Error("Usage: assetlens folder add <path>");
+            const info = await withProgress((onProgress) =>
+              engine.addLocalFolder(folderPath, { onProgress }),
+            );
+            summarize("Added folder", info);
+            return 0;
+          }
+          case "list": {
+            const folders = await engine.listLocalFolders();
+            if (folders.length === 0) {
+              process.stdout.write("No local folders registered.\n");
+              return 0;
+            }
+            for (const f of folders) {
+              process.stdout.write(
+                `${f.path} — ${f.fileCount} files, ${formatBytes(f.totalSize)}` +
+                  `${f.status === "missing" ? " [MISSING]" : ""}\n`,
+              );
+            }
+            return 0;
+          }
+          case "remove": {
+            if (!folderPath) throw new Error("Usage: assetlens folder remove <path>");
+            engine.removeLocalFolder(folderPath);
+            process.stdout.write(`Removed folder ${folderPath}.\n`);
+            return 0;
+          }
+          case "rescan": {
+            const targets = folderPath
+              ? [folderPath]
+              : (await engine.listLocalFolders()).map((f) => f.path);
+            if (targets.length === 0) {
+              process.stdout.write("No local folders registered.\n");
+              return 0;
+            }
+            for (const path of targets) {
+              const info = await withProgress((onProgress) =>
+                engine.rescanLocalFolder(path, { onProgress }),
+              );
+              summarize("Re-scanned", info);
+            }
+            return 0;
+          }
+          default:
+            throw new Error(
+              "Usage: assetlens folder <add|list|remove|rescan> [path]",
+            );
+        }
       }
 
       case "fetch": {

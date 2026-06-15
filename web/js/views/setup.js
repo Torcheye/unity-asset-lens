@@ -1,6 +1,6 @@
 import { h } from "../dom.js";
-import { MONO, stepColors } from "../theme.js";
-import { formatInt } from "../format.js";
+import { MONO, stepColors, badgeStyle } from "../theme.js";
+import { formatInt, formatBytes } from "../format.js";
 
 const ACTION_LABELS = {
   signin: { todo: "Sign in", running: "Signing in…", done: "Re-sign in" },
@@ -261,6 +261,109 @@ const STEP_CONFIG = [
   },
 ];
 
+// ── local folders (optional) ──────────────────────────────────────────────
+function iconButtonStyle(disabled) {
+  return {
+    flexShrink: 0, width: "28px", height: "28px", display: "flex",
+    alignItems: "center", justifyContent: "center", fontSize: "0.8125rem",
+    color: disabled ? "#5a5a64" : "#b7b7c1", background: "transparent",
+    border: "1px solid #33333b", borderRadius: "7px",
+    cursor: disabled ? "not-allowed" : "pointer",
+  };
+}
+
+function folderBusyLine(scan) {
+  return h(
+    "div",
+    { style: { marginTop: "13px" } },
+    h(
+      "div",
+      { style: { position: "relative", height: "6px", background: "#15151a", borderRadius: "4px", overflow: "hidden" } },
+      h("div", { class: "al-bar-indeterminate" }),
+    ),
+    h(
+      "div",
+      { style: { marginTop: "6px", fontSize: "0.7188rem", color: "#7e7e8a", fontFamily: MONO } },
+      scan.current > 0 ? `${scan.message}  ·  ${formatInt(scan.current)} files` : scan.message,
+    ),
+  );
+}
+
+function folderRow(folder, actions, busy) {
+  const missing = folder.status === "missing";
+  return h(
+    "div",
+    {
+      style: {
+        display: "flex", alignItems: "center", gap: "11px", padding: "10px 12px",
+        background: "#191920", borderRadius: "9px",
+        border: "1px solid " + (missing ? "rgba(255,176,92,0.3)" : "#26262d"),
+      },
+    },
+    h(
+      "div",
+      { style: { minWidth: 0, flex: "1" } },
+      h(
+        "div",
+        { style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" } },
+        h("span", { style: { fontSize: "0.8125rem", fontWeight: 600, color: "#ededf1" } }, folder.name),
+        missing ? h("span", { style: badgeStyle("#ffb05c", "rgba(255,176,92,0.14)") }, "missing") : null,
+      ),
+      h(
+        "div",
+        { style: { marginTop: "2px", fontFamily: MONO, fontSize: "0.6875rem", color: "#7a7a85", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+        folder.path,
+      ),
+      missing
+        ? h("div", { style: { marginTop: "4px", fontSize: "0.7188rem", color: "#ffb05c", lineHeight: "1.45" } }, "Folder not found — its files are still searchable. Re-scan if it's back, or remove it.")
+        : null,
+    ),
+    h(
+      "div",
+      { style: { flexShrink: 0, fontSize: "0.7188rem", color: "#83838f", textAlign: "right", whiteSpace: "nowrap" } },
+      `${formatBytes(folder.totalSize)} · ${formatInt(folder.fileCount)} files`,
+    ),
+    h("button", { onClick: () => { if (!busy) actions.rescanFolder(folder.path); }, disabled: busy ? "" : null, title: "Re-scan", style: iconButtonStyle(busy) }, "↻"),
+    h("button", { onClick: () => { if (!busy) actions.removeFolder(folder.path); }, disabled: busy ? "" : null, title: "Remove", style: iconButtonStyle(busy) }, "✕"),
+  );
+}
+
+function FoldersCard(state, actions) {
+  const busy = !!state.folderScan;
+  const folders = state.folders || [];
+  return h(
+    "div",
+    { style: { background: "#1d1d22", border: "1px solid #2a2a31", borderRadius: "11px", padding: "15px 17px", marginTop: "11px" } },
+    h(
+      "div",
+      { style: { display: "flex", alignItems: "flex-start", gap: "13px" } },
+      h(
+        "div",
+        { style: { flex: "1", minWidth: 0 } },
+        h(
+          "div",
+          { style: { display: "flex", alignItems: "center", gap: "9px", flexWrap: "wrap" } },
+          h("span", { style: { fontSize: "0.9063rem", fontWeight: 600, color: "#ededf1" } }, "Local folders"),
+          h("span", { style: { fontSize: "0.6563rem", color: "#6a6a74", border: "1px solid #2e2e36", borderRadius: "5px", padding: "1px 6px" } }, "optional"),
+        ),
+        h("div", { style: { marginTop: "5px", fontSize: "0.7813rem", color: "#86868f", lineHeight: "1.55" } }, "Add folders outside the Asset Store cache. Their files are scanned and included in search, matched by path and name."),
+      ),
+      h(
+        "button",
+        { onClick: () => { if (!busy) actions.addFolder(); }, disabled: busy ? "" : null, title: "Add folder", style: busy ? disabledActionStyle() : primaryActionStyle() },
+        busy ? "Working…" : "Add folder",
+      ),
+    ),
+    busy ? folderBusyLine(state.folderScan) : null,
+    state.folderError ? h("div", { style: { marginTop: "12px", fontSize: "0.7813rem", color: "#ff8f6b", fontFamily: MONO } }, `! ${state.folderError}`) : null,
+    folders.length > 0
+      ? h("div", { style: { display: "flex", flexDirection: "column", gap: "8px", marginTop: "14px" } }, ...folders.map((f) => folderRow(f, actions, busy)))
+      : busy
+        ? null
+        : h("div", { style: { marginTop: "12px", fontSize: "0.7813rem", color: "#6b6b76" } }, "No folders added yet."),
+  );
+}
+
 export function SetupView(state, actions) {
   const openEnabled = state.steps.import.status === "done" && state.steps.scan.status === "done";
   const openStyle = openEnabled
@@ -281,6 +384,7 @@ export function SetupView(state, actions) {
         { style: { display: "flex", flexDirection: "column", gap: "11px", marginTop: "18px" } },
         ...STEP_CONFIG.map((cfg) => stepCard(state, actions, cfg)),
       ),
+      FoldersCard(state, actions),
       h(
         "div",
         {
