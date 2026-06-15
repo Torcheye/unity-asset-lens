@@ -58,6 +58,28 @@ export interface IndexStats {
   deepProducts: number;
 }
 
+/** A registered local-folder row (the `local_folders` table). */
+export interface LocalFolderRow {
+  path: string;
+  product_id: string;
+  file_count: number;
+  total_size: number;
+  status: "ok" | "missing";
+  added_at: number;
+  scanned_at: number;
+}
+
+/** Fields needed to insert/refresh a {@link LocalFolderRow}. */
+export interface LocalFolderInput {
+  readonly path: string;
+  readonly productId: string;
+  readonly fileCount: number;
+  readonly totalSize: number;
+  readonly status: "ok" | "missing";
+  readonly addedAt: number;
+  readonly scannedAt: number;
+}
+
 export class Repository {
   readonly #db: DB;
 
@@ -309,13 +331,15 @@ export class Repository {
    * Reconstruct the real store-catalog rows from the index (for local matching).
    * Excludes synthetic `local:` placeholders — they are not catalog entries, and
    * including them would shadow a real product's name and make the matcher's
-   * name-only fallback ambiguous, so a re-scan could never re-home them.
+   * name-only fallback ambiguous, so a re-scan could never re-home them. Also
+   * excludes `folder:` rows (registered local folders are not catalog products).
    */
   listCatalogProducts(): CatalogProduct[] {
     const rows = this.#db
       .prepare(
         "SELECT product_id, name, publisher, download_size, is_hidden, kharma_id " +
-          "FROM products WHERE product_id NOT LIKE 'local:%'",
+          "FROM products WHERE product_id NOT LIKE 'local:%' " +
+          "AND product_id NOT LIKE 'folder:%'",
       )
       .all() as Array<{
       product_id: string;
@@ -444,8 +468,13 @@ export class Repository {
   }
 
   listPublishers(): string[] {
+    // Registered folders store their absolute path as `publisher` for display;
+    // exclude them so raw paths don't clutter the publisher filter dropdown.
     const rows = this.#db
-      .prepare("SELECT DISTINCT publisher FROM products ORDER BY publisher COLLATE NOCASE")
+      .prepare(
+        "SELECT DISTINCT publisher FROM products WHERE product_id NOT LIKE 'folder:%' " +
+          "ORDER BY publisher COLLATE NOCASE",
+      )
       .all() as { publisher: string }[];
     return rows.map((r) => r.publisher);
   }
@@ -531,5 +560,74 @@ export class Repository {
            indexed_at = excluded.indexed_at`,
       )
       .run(filePath, mtimeMs, size, productId, now);
+  }
+
+  /**
+   * Delete a product and every trace of it (file + product FTS rows, files,
+   * product row) in one transaction. Used to remove a registered folder's
+   * synthetic product. (`files` cascades on the FK, but FTS rows are
+   * standalone, so both are deleted explicitly.)
+   */
+  deleteProductCascade(productId: string): void {
+    const tx = this.#db.transaction(() => {
+      this.#db.prepare("DELETE FROM files_fts WHERE product_id = ?").run(productId);
+      this.#db.prepare("DELETE FROM products_fts WHERE product_id = ?").run(productId);
+      this.#db.prepare("DELETE FROM files WHERE product_id = ?").run(productId);
+      this.#db.prepare("DELETE FROM products WHERE product_id = ?").run(productId);
+    });
+    tx();
+  }
+
+  // ---- registered local folders --------------------------------------------
+
+  /**
+   * Insert or refresh a registered folder's row. On conflict the original
+   * `added_at` is preserved (a re-scan keeps the time the folder was first
+   * added); everything else is updated to the latest scan.
+   */
+  upsertLocalFolder(f: LocalFolderInput): void {
+    this.#db
+      .prepare(
+        `INSERT INTO local_folders
+           (path, product_id, file_count, total_size, status, added_at, scanned_at)
+         VALUES (@path, @product_id, @file_count, @total_size, @status, @added_at, @scanned_at)
+         ON CONFLICT(path) DO UPDATE SET
+           product_id = excluded.product_id,
+           file_count = excluded.file_count,
+           total_size = excluded.total_size,
+           status = excluded.status,
+           scanned_at = excluded.scanned_at`,
+      )
+      .run({
+        path: f.path,
+        product_id: f.productId,
+        file_count: f.fileCount,
+        total_size: f.totalSize,
+        status: f.status,
+        added_at: f.addedAt,
+        scanned_at: f.scannedAt,
+      });
+  }
+
+  listLocalFolders(): LocalFolderRow[] {
+    return this.#db
+      .prepare("SELECT * FROM local_folders ORDER BY added_at")
+      .all() as LocalFolderRow[];
+  }
+
+  getLocalFolder(path: string): LocalFolderRow | undefined {
+    return this.#db
+      .prepare("SELECT * FROM local_folders WHERE path = ?")
+      .get(path) as LocalFolderRow | undefined;
+  }
+
+  setLocalFolderStatus(path: string, status: "ok" | "missing"): void {
+    this.#db
+      .prepare("UPDATE local_folders SET status = ? WHERE path = ?")
+      .run(status, path);
+  }
+
+  deleteLocalFolder(path: string): void {
+    this.#db.prepare("DELETE FROM local_folders WHERE path = ?").run(path);
   }
 }

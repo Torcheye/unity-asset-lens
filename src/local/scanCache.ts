@@ -1,5 +1,6 @@
-import { readdir, stat } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { stat } from "node:fs/promises";
+import { relative, sep } from "node:path";
+import { walkFiles } from "./walk.js";
 
 /**
  * Discover downloaded `.unitypackage` files in the Asset Store cache (spec §3.1,
@@ -20,24 +21,6 @@ const UNITYPACKAGE_RE = /\.unitypackage$/i;
 
 export function isUnityPackage(path: string): boolean {
   return UNITYPACKAGE_RE.test(path);
-}
-
-/** Recursively yield absolute file paths under `dir`. */
-async function* walkFiles(dir: string): AsyncGenerator<string> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return; // unreadable dir (permissions, race) — skip silently
-  }
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      yield* walkFiles(full);
-    } else if (entry.isFile()) {
-      yield full;
-    }
-  }
 }
 
 function deriveParts(root: string, filePath: string): {

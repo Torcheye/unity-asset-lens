@@ -29,10 +29,17 @@ function actionButton(label, onClick, variant) {
   );
 }
 
-function hitRow(hit, terms) {
+function hitRow(hit, terms, onReveal) {
+  const base = {
+    style: { display: "flex", alignItems: "center", gap: "10px", padding: "6px 14px", borderTop: "1px solid #1f1f25", ...(onReveal ? { cursor: "pointer" } : {}) },
+    hover: { background: "#212128" },
+  };
+  const props = onReveal
+    ? { ...base, onClick: () => onReveal(hit), title: "Reveal this file in the file manager" }
+    : base;
   return h(
     "div",
-    { style: { display: "flex", alignItems: "center", gap: "10px", padding: "6px 14px", borderTop: "1px solid #1f1f25" }, hover: { background: "#212128" } },
+    props,
     h("span", { style: { fontFamily: MONO, fontSize: "0.6875rem", color: "#5f5f6a", minWidth: "42px" } }, `[${hit.fileId}]`),
     h("span", { style: { fontFamily: MONO, fontSize: "0.7813rem", letterSpacing: "-0.1px", flex: "1", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, ...highlightPath(hit.fullPath, terms)),
     h(
@@ -46,15 +53,27 @@ function hitRow(hit, terms) {
 
 function group(g, terms, actions) {
   const isMeta = g.totalHits === 0;
-  const sb = g.source === "local" ? ["local", "#46d9a0", "rgba(70,217,160,0.12)"] : ["online", "#8f8f9b", "rgba(143,143,155,0.12)"];
+  // A registered local folder: distinct badge, no store/download (it's not a
+  // store product), and each hit reveals the exact file rather than a package.
+  const isFolder = g.productId.startsWith("folder:");
+  const sb = isFolder
+    ? ["folder", "#c79bff", "rgba(199,155,255,0.14)"]
+    : g.source === "local"
+      ? ["local", "#46d9a0", "rgba(70,217,160,0.12)"]
+      : ["online", "#8f8f9b", "rgba(143,143,155,0.12)"];
   const cb = g.coverage === "deep" ? ["deep", "#7aa2ff", "rgba(122,162,255,0.10)"] : ["shallow", "#ffb05c", "rgba(255,176,92,0.12)"];
   const shown = g.hits.slice(0, MAX_HITS);
   const moreCount = g.hits.length - shown.length;
+  const onReveal = isFolder ? (hit) => actions.revealFile(hit.fileId) : null;
 
   const buttons = [];
-  if (g.source === "local") buttons.push(actionButton("Reveal", () => actions.runAction("reveal", g.productId), "reveal"));
-  else buttons.push(actionButton("Download", () => actions.runAction("download", g.productId), "download"));
-  buttons.push(actionButton("Store ↗", () => actions.runAction("open", g.productId), "store"));
+  if (isFolder) {
+    buttons.push(actionButton("Reveal folder", () => actions.runAction("reveal", g.productId), "reveal"));
+  } else {
+    if (g.source === "local") buttons.push(actionButton("Reveal", () => actions.runAction("reveal", g.productId), "reveal"));
+    else buttons.push(actionButton("Download", () => actions.runAction("download", g.productId), "download"));
+    buttons.push(actionButton("Store ↗", () => actions.runAction("open", g.productId), "store"));
+  }
 
   const children = [
     h(
@@ -95,7 +114,7 @@ function group(g, terms, actions) {
       ),
     );
   } else {
-    const rows = shown.map((hgrp) => hitRow(hgrp, terms));
+    const rows = shown.map((hgrp) => hitRow(hgrp, terms, onReveal));
     if (moreCount > 0) {
       rows.push(
         h("div", { style: { padding: "7px 14px", borderTop: "1px solid #1f1f25", fontSize: "0.75rem", color: "#6b6b76", fontFamily: MONO } }, `… ${moreCount} more file${moreCount === 1 ? "" : "s"} in this package`),

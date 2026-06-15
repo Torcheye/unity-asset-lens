@@ -66,6 +66,22 @@ CREATE TABLE IF NOT EXISTS scanned_packages (
   indexed_at INTEGER NOT NULL
 );
 
+-- User-registered local folders (outside the Asset Store cache). Each folder is
+-- scanned into a synthetic 'folder:<path>' product whose files are searchable by
+-- path/name only. This registry row tracks the per-folder display state — file
+-- count, total size (the files table has no size column), validity and
+-- timestamps. Adding this table is backward-safe: db.ts re-runs SCHEMA_SQL on
+-- every open, so existing DBs gain it without a rebuild (no FTS change).
+CREATE TABLE IF NOT EXISTS local_folders (
+  path        TEXT PRIMARY KEY,
+  product_id  TEXT NOT NULL,
+  file_count  INTEGER NOT NULL DEFAULT 0,
+  total_size  INTEGER NOT NULL DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','missing')),
+  added_at    INTEGER NOT NULL,
+  scanned_at  INTEGER NOT NULL
+);
+
 -- Product-level metadata FTS: lets a product be found by name/keywords even
 -- before it has any indexed files (shallow/online/wrapper), then "upgraded" to
 -- file hits once deep-indexed (spec §4, §7). product_id carried UNINDEXED.
@@ -86,4 +102,4 @@ CREATE TABLE IF NOT EXISTS meta (
 `;
 
 /** Current schema version, bumped on breaking schema changes. */
-export const SCHEMA_VERSION = "1";
+export const SCHEMA_VERSION = "2";

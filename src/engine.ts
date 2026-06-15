@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { GroupedSearchResult } from "./domain/types.js";
 import type { ProgressReporter } from "./domain/progress.js";
 import {
@@ -27,6 +27,16 @@ import {
 } from "./local/localIndexer.js";
 import { statPackage } from "./local/scanCache.js";
 import { buildCatalogMatcher } from "./local/matchCatalog.js";
+import {
+  indexFolder,
+  folderInfoFromRow,
+  isFolderProductId,
+  type LocalFolderInfo,
+} from "./local/folderIndexer.js";
+import {
+  pickFolder as pickFolderDialog,
+  type CaptureRunner,
+} from "./actions/folderPicker.js";
 import { fetchAnonymousSession, type StoreSession } from "./store/csrf.js";
 import { createStoreClient } from "./store/graphql.js";
 import { nodeHttp, type HttpClient } from "./store/http.js";
@@ -439,6 +449,86 @@ export class AssetLensEngine {
     );
   }
 
+  // ---- registered local folders (spec §8 local-web UI) ---------------------
+
+  /**
+   * Open the native OS folder picker and return the chosen absolute path, or
+   * null if the user cancelled. GUI-only; the CLI takes an explicit path.
+   * The runner is injectable for testing.
+   */
+  pickFolder(runner?: CaptureRunner): Promise<string | null> {
+    return pickFolderDialog(this.#env.platform, runner);
+  }
+
+  /**
+   * Register and scan a local folder (outside the Asset Store cache), indexing
+   * its loose files as a synthetic deep `local` product — searchable by path
+   * and name only. Re-adding the same path re-scans it (last-write-wins).
+   * Throws if the path is not an existing directory.
+   */
+  async addLocalFolder(
+    path: string,
+    opts: { now?: number; onProgress?: ProgressReporter } = {},
+  ): Promise<LocalFolderInfo> {
+    let st;
+    try {
+      st = await stat(path);
+    } catch {
+      throw new Error(`No such folder: ${path}`);
+    }
+    if (!st.isDirectory()) throw new Error(`Not a folder: ${path}`);
+    return indexFolder(this.repo, path, opts.now ?? Date.now(), opts.onProgress);
+  }
+
+  /**
+   * Re-scan an already-registered folder. If its path is no longer a directory
+   * it is flagged `missing` (its existing files stay searchable) instead of
+   * failing — the "keep & warn" behaviour.
+   */
+  async rescanLocalFolder(
+    path: string,
+    opts: { now?: number; onProgress?: ProgressReporter } = {},
+  ): Promise<LocalFolderInfo> {
+    const row = this.repo.getLocalFolder(path);
+    if (!row) throw new Error(`Folder not registered: ${path}`);
+    if (!(await this.#isDirectory(path))) {
+      this.repo.setLocalFolderStatus(path, "missing");
+      return folderInfoFromRow(this.repo.getLocalFolder(path)!);
+    }
+    return indexFolder(this.repo, path, opts.now ?? Date.now(), opts.onProgress);
+  }
+
+  /**
+   * List registered folders, re-validating each path and flipping its status to
+   * `ok`/`missing` as needed. Files of a now-missing folder are kept searchable
+   * (the user removes the folder explicitly).
+   */
+  async listLocalFolders(): Promise<LocalFolderInfo[]> {
+    const out: LocalFolderInfo[] = [];
+    for (const row of this.repo.listLocalFolders()) {
+      const status = (await this.#isDirectory(row.path)) ? "ok" : "missing";
+      if (status !== row.status) this.repo.setLocalFolderStatus(row.path, status);
+      out.push(folderInfoFromRow({ ...row, status }));
+    }
+    return out;
+  }
+
+  /** Unregister a folder: drop its synthetic product + files and registry row. */
+  removeLocalFolder(path: string): void {
+    const row = this.repo.getLocalFolder(path);
+    if (!row) return;
+    this.repo.deleteProductCascade(row.product_id);
+    this.repo.deleteLocalFolder(path);
+  }
+
+  async #isDirectory(path: string): Promise<boolean> {
+    try {
+      return (await stat(path)).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
   // ---- online content fetch (spec §5.4) ------------------------------------
 
   /** Build an anonymous CSRF session for PreviewAssets (no login). */
@@ -476,12 +566,18 @@ export class AssetLensEngine {
   ): Promise<OsCommand> {
     const file = this.repo.getFile(fileId);
     if (!file) throw new Error(`No file with id ${fileId}`);
-    if (!file.local_path) {
+    // A registered-folder file exists on disk at its own `full_path`, so reveal
+    // that exact file. Cache/online products instead reveal the downloaded
+    // `.unitypackage` (the individual asset lives inside the archive, not on disk).
+    const target = isFolderProductId(file.product_id)
+      ? file.full_path
+      : file.local_path;
+    if (!target) {
       throw new Error(
         "This file's product is not downloaded yet — use `download` first.",
       );
     }
-    const command = revealCommand(this.#env.platform, file.local_path);
+    const command = revealCommand(this.#env.platform, target);
     await runner(command);
     return command;
   }

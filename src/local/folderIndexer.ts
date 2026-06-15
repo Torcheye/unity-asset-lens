@@ -1,0 +1,160 @@
+import { stat } from "node:fs/promises";
+import { walkFiles } from "./walk.js";
+import { baseNameOf, bucketForPath, extOf } from "../domain/fileType.js";
+import type {
+  CatalogProduct,
+  IndexedProduct,
+  ProductFile,
+} from "../domain/types.js";
+import type { ProgressReporter } from "../domain/progress.js";
+import type { LocalFolderRow, Repository } from "../index/repository.js";
+
+/**
+ * User-folder indexer: scan an arbitrary local folder of loose files and index
+ * them as a single synthetic deep-coverage `local` product so they show up in
+ * search alongside the Asset Store library. Files are matched by **path and
+ * name only** — no product/keyword metadata. Mirrors the cache local-indexer
+ * (`localIndexer.ts`) but has no `.unitypackage` parsing and no catalog match.
+ */
+
+/**
+ * Synthetic product-id prefix for registered folders. Deliberately distinct
+ * from the cache's `local:` prefix: `pruneSupersededLocalProducts` deletes any
+ * `local:%` row lacking a `scanned_packages` reference, which a folder product
+ * never has — so a separate prefix keeps folders out of that pruning path.
+ */
+export const FOLDER_PRODUCT_PREFIX = "folder:";
+
+export function folderProductId(path: string): string {
+  return `${FOLDER_PRODUCT_PREFIX}${path}`;
+}
+
+/** Whether a product id belongs to a registered local folder. */
+export function isFolderProductId(productId: string): boolean {
+  return productId.startsWith(FOLDER_PRODUCT_PREFIX);
+}
+
+export type LocalFolderStatus = "ok" | "missing";
+
+/** A registered folder as surfaced to the engine/CLI/GUI. */
+export interface LocalFolderInfo {
+  readonly path: string;
+  /** Display name (the folder's final path segment). */
+  readonly name: string;
+  readonly productId: string;
+  readonly fileCount: number;
+  readonly totalSize: number;
+  readonly status: LocalFolderStatus;
+  readonly addedAt: number;
+  readonly scannedAt: number;
+}
+
+export interface FolderScanResult {
+  readonly files: readonly ProductFile[];
+  readonly totalSize: number;
+}
+
+/**
+ * Walk a folder, classifying every file and summing total bytes. `fullPath` is
+ * the absolute on-disk path (so per-file reveal can open the real file); the
+ * other fields come from the shared file-type helpers.
+ */
+export async function scanFolder(
+  path: string,
+  onProgress?: ProgressReporter,
+): Promise<FolderScanResult> {
+  const files: ProductFile[] = [];
+  let totalSize = 0;
+  let count = 0;
+  for await (const filePath of walkFiles(path)) {
+    let st;
+    try {
+      st = await stat(filePath);
+    } catch {
+      continue; // vanished between walk and stat — skip
+    }
+    totalSize += st.size;
+    const fileName = baseNameOf(filePath);
+    files.push({
+      fullPath: filePath,
+      fileName,
+      ext: extOf(filePath),
+      typeBucket: bucketForPath(filePath),
+      source: "local",
+    });
+    count += 1;
+    onProgress?.({
+      phase: "folder",
+      current: count,
+      total: 0,
+      message: `Scanning ${fileName}…`,
+      detail: fileName,
+    });
+  }
+  return { files, totalSize };
+}
+
+/** Build the synthetic IndexedProduct for a scanned folder. */
+export function buildFolderIndexedProduct(
+  path: string,
+  files: readonly ProductFile[],
+): IndexedProduct {
+  const product: CatalogProduct = {
+    id: folderProductId(path),
+    name: baseNameOf(path) || path,
+    // The full path doubles as the card subtitle; publisher weight is low and
+    // these rows are excluded from the publisher filter (see repository).
+    publisher: path,
+    isHidden: false,
+  };
+  return {
+    product,
+    tags: [],
+    isWrapper: false,
+    coverage: "deep",
+    source: "local",
+    storeUrl: "", // a local folder has no store page
+    localPath: path,
+    files,
+  };
+}
+
+/** Map a stored registry row to the engine/UI-facing {@link LocalFolderInfo}. */
+export function folderInfoFromRow(row: LocalFolderRow): LocalFolderInfo {
+  return {
+    path: row.path,
+    name: baseNameOf(row.path) || row.path,
+    productId: row.product_id,
+    fileCount: row.file_count,
+    totalSize: row.total_size,
+    status: row.status,
+    addedAt: row.added_at,
+    scannedAt: row.scanned_at,
+  };
+}
+
+/**
+ * Scan a folder, (re)write its synthetic product + files atomically, and record
+ * the registry row. Re-running is last-write-wins (the original `added_at` is
+ * preserved by the repository). Returns the resulting registry info.
+ */
+export async function indexFolder(
+  repo: Repository,
+  path: string,
+  now: number,
+  onProgress?: ProgressReporter,
+): Promise<LocalFolderInfo> {
+  const { files, totalSize } = await scanFolder(path, onProgress);
+  const indexed = buildFolderIndexedProduct(path, files);
+  repo.writeIndexedProduct(indexed, now);
+  repo.upsertLocalFolder({
+    path,
+    productId: indexed.product.id,
+    fileCount: files.length,
+    totalSize,
+    status: "ok",
+    addedAt: now,
+    scannedAt: now,
+  });
+  return folderInfoFromRow(repo.getLocalFolder(path)!);
+}

@@ -6,6 +6,7 @@ import type { OsCommand } from "../actions/actions.js";
 import { sendJson, sendError, readJsonBody } from "./http.js";
 import { buildOverview } from "./overview.js";
 import { isStepName, runStep } from "./steps.js";
+import { runFolderScan } from "./folders.js";
 
 /**
  * JSON + SSE API backing the GUI. Every engine capability the browser needs is
@@ -57,6 +58,36 @@ export async function handleApi(
 
   if (path === "/api/action" && method === "POST") {
     await handleAction(engine, req, res);
+    return true;
+  }
+
+  if (path === "/api/folders" && method === "GET") {
+    sendJson(res, 200, { folders: await engine.listLocalFolders() });
+    return true;
+  }
+
+  if (path === "/api/folders/pick" && method === "POST") {
+    try {
+      sendJson(res, 200, { path: await engine.pickFolder() });
+    } catch (err) {
+      sendError(res, 500, (err as Error).message);
+    }
+    return true;
+  }
+
+  if (path === "/api/folders/remove" && method === "POST") {
+    await handleFolderRemove(engine, req, res);
+    return true;
+  }
+
+  if (path === "/api/folders/scan" && method === "GET") {
+    const folderPath = url.searchParams.get("path") ?? "";
+    if (!folderPath) {
+      sendError(res, 400, "Missing ?path=");
+      return true;
+    }
+    const mode = url.searchParams.get("mode") === "rescan" ? "rescan" : "add";
+    await runFolderScan(engine, folderPath, mode, res);
     return true;
   }
 
@@ -117,7 +148,7 @@ async function handleAction(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  let body: { kind?: unknown; productId?: unknown };
+  let body: { kind?: unknown; productId?: unknown; fileId?: unknown };
   try {
     body = (await readJsonBody(req)) as typeof body;
   } catch (err) {
@@ -126,16 +157,35 @@ async function handleAction(
   }
   const kind = typeof body.kind === "string" ? body.kind : "";
   const productId = typeof body.productId === "string" ? body.productId : "";
-  if (!ACTION_KINDS.has(kind) || !productId) {
-    sendError(res, 400, "Expected { kind: reveal|open|download, productId }");
+  const fileId = typeof body.fileId === "number" ? body.fileId : undefined;
+  if (!ACTION_KINDS.has(kind)) {
+    sendError(res, 400, "Expected { kind: reveal|open|download, productId | fileId }");
     return;
   }
+  // `reveal` may target a single file (folder hits open the exact file) or a
+  // whole product (open the downloaded package / folder root).
+  if (kind === "reveal" && fileId !== undefined) {
+    await runAction(res, () => engine.revealFile(fileId));
+    return;
+  }
+  if (!productId) {
+    sendError(res, 400, "Expected { kind, productId }");
+    return;
+  }
+  await runAction(res, () => {
+    if (kind === "reveal") return engine.revealProduct(productId);
+    if (kind === "download") return engine.download(productId);
+    return engine.openStoreForProduct(productId);
+  });
+}
 
+/** Run an action that yields an OsCommand and report it (or its error). */
+async function runAction(
+  res: ServerResponse,
+  act: () => Promise<OsCommand>,
+): Promise<void> {
   try {
-    let command: OsCommand;
-    if (kind === "reveal") command = await engine.revealProduct(productId);
-    else if (kind === "download") command = await engine.download(productId);
-    else command = await engine.openStoreForProduct(productId);
+    const command = await act();
     sendJson(res, 200, {
       command,
       display: `${command.cmd} ${command.args.join(" ")}`.trim(),
@@ -143,4 +193,25 @@ async function handleAction(
   } catch (err) {
     sendError(res, 409, (err as Error).message);
   }
+}
+
+async function handleFolderRemove(
+  engine: AssetLensEngine,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let body: { path?: unknown };
+  try {
+    body = (await readJsonBody(req)) as typeof body;
+  } catch (err) {
+    sendError(res, 400, (err as Error).message);
+    return;
+  }
+  const folderPath = typeof body.path === "string" ? body.path : "";
+  if (!folderPath) {
+    sendError(res, 400, "Expected { path }");
+    return;
+  }
+  engine.removeLocalFolder(folderPath);
+  sendJson(res, 200, { folders: await engine.listLocalFolders() });
 }

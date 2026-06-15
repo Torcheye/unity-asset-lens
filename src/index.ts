@@ -40,7 +40,12 @@ export type {
 
 // Index / search
 export { openDatabase, type DB } from "./index/db.js";
-export { Repository, type IndexStats } from "./index/repository.js";
+export {
+  Repository,
+  type IndexStats,
+  type LocalFolderRow,
+  type LocalFolderInput,
+} from "./index/repository.js";
 export {
   search,
   searchFiles,
@@ -82,6 +87,19 @@ export {
   type LocalIndexOptions,
 } from "./local/localIndexer.js";
 export { buildCatalogMatcher, normalizeKey } from "./local/matchCatalog.js";
+export { walkFiles } from "./local/walk.js";
+export {
+  scanFolder,
+  indexFolder,
+  buildFolderIndexedProduct,
+  folderInfoFromRow,
+  folderProductId,
+  isFolderProductId,
+  FOLDER_PRODUCT_PREFIX,
+  type LocalFolderInfo,
+  type LocalFolderStatus,
+  type FolderScanResult,
+} from "./local/folderIndexer.js";
 
 // Store / online
 export {
@@ -131,6 +149,12 @@ export {
   type OsCommand,
   type CommandRunner,
 } from "./actions/actions.js";
+export {
+  folderPickerCommand,
+  pickFolder,
+  captureRunner,
+  type CaptureRunner,
+} from "./actions/folderPicker.js";
 
 // Store constants (operation strings live here — spec §10)
 export {
