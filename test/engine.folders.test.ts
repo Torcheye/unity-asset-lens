@@ -5,6 +5,7 @@ import type { PathEnv } from "../src/config/paths.js";
 import type { OsCommand } from "../src/actions/actions.js";
 import { folderProductId } from "../src/local/folderIndexer.js";
 import { makeTempDir, writeFileAt } from "./helpers/tmp.js";
+import { buildUnityPackage } from "./helpers/buildPackage.js";
 
 const env: PathEnv = { platform: "win32", home: "C:/Users/x", env: {} };
 
@@ -51,6 +52,36 @@ describe("AssetLensEngine — registered local folders", () => {
       engine.removeLocalFolder(dir);
       expect(engine.search("click")).toHaveLength(0);
       expect(await engine.listLocalFolders()).toHaveLength(0);
+    } finally {
+      engine.close();
+    }
+  });
+
+  it("reveals the containing .unitypackage for a file expanded from inside a folder", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    const pkg = await buildUnityPackage([{ path: "Assets/SFX/Laser_01.wav" }]);
+    await writeFileAt(dir, "Sounds.unitypackage", pkg);
+
+    const engine = openEngine();
+    try {
+      await engine.addLocalFolder(dir, { now: 1 });
+
+      // The asset inside the package is searchable on its own name.
+      const groups = engine.search("Laser");
+      expect(groups[0]!.productId).toBe(folderProductId(dir));
+      const fileId = groups[0]!.hits[0]!.fileId;
+
+      // Revealing it opens the containing archive on disk — its internal
+      // project path (Assets/SFX/Laser_01.wav) is not a real file.
+      const captured: OsCommand[] = [];
+      const cmd = await engine.revealFile(fileId, async (c) => {
+        captured.push(c);
+      });
+      expect(cmd.cmd).toBe("explorer.exe"); // win32 env
+      expect(cmd.args[0]).toContain("Sounds.unitypackage");
+      expect(cmd.args[0]).not.toContain("Laser_01.wav");
+      expect(captured).toHaveLength(1);
     } finally {
       engine.close();
     }
