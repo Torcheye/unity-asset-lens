@@ -9,6 +9,7 @@ import {
 import { searchFiles } from "../../src/index/search.js";
 import { memoryRepo } from "../helpers/db.js";
 import { makeTempDir, writeFileAt } from "../helpers/tmp.js";
+import { buildUnityPackage } from "../helpers/buildPackage.js";
 
 describe("scanFolder", () => {
   const cleanups: Array<() => Promise<void>> = [];
@@ -43,9 +44,11 @@ describe("scanFolder", () => {
     await writeFileAt(dir, "b.txt", "b");
 
     const events: number[] = [];
-    await scanFolder(dir, (e) => {
-      expect(e.phase).toBe("folder");
-      events.push(e.current);
+    await scanFolder(dir, {
+      onProgress: (e) => {
+        expect(e.phase).toBe("folder");
+        events.push(e.current);
+      },
     });
     expect(events).toEqual([1, 2]);
   });
@@ -54,6 +57,90 @@ describe("scanFolder", () => {
     const { files, totalSize } = await scanFolder("/no/such/folder/here");
     expect(files).toHaveLength(0);
     expect(totalSize).toBe(0);
+  });
+});
+
+describe("scanFolder — .unitypackage expansion", () => {
+  const cleanups: Array<() => Promise<void>> = [];
+  afterEach(async () => {
+    while (cleanups.length) await cleanups.pop()!();
+  });
+
+  it("expands a package's internal files alongside the package row", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    const pkg = await buildUnityPackage([
+      { path: "Assets/SFX/boom.wav" },
+      { path: "Assets/Scripts/Player.cs" },
+    ]);
+    const pkgPath = await writeFileAt(dir, "Audio.unitypackage", pkg);
+    await writeFileAt(dir, "loose/readme.txt", Buffer.alloc(7));
+
+    const { files, totalSize } = await scanFolder(dir);
+    const byName = Object.fromEntries(files.map((f) => [f.fileName, f]));
+
+    // The package's own on-disk row is kept (findable/revealable by name)...
+    expect(byName["Audio.unitypackage"]!.fullPath).toBe(pkgPath);
+    expect(byName["Audio.unitypackage"]!.nestedPkg).toBeUndefined();
+    // ...plus every internal file, each tagged with the absolute archive path,
+    // while its fullPath stays the internal project path.
+    expect(byName["boom.wav"]!.fullPath).toBe("Assets/SFX/boom.wav");
+    expect(byName["boom.wav"]!.nestedPkg).toBe(pkgPath);
+    expect(byName["boom.wav"]!.typeBucket).toBe("audio");
+    expect(byName["Player.cs"]!.nestedPkg).toBe(pkgPath);
+    // The loose file is still indexed on its own.
+    expect(byName["readme.txt"]!.nestedPkg).toBeUndefined();
+    // Bytes are counted once (the package's on-disk size); internals add 0.
+    expect(totalSize).toBe(pkg.length + 7);
+  });
+
+  it("recurses nested wrapper packages, tagging the on-disk outer archive", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    const inner = await buildUnityPackage([{ path: "Assets/Art/tree.fbx" }]);
+    const outer = await buildUnityPackage([
+      { path: "URP/Pipeline.unitypackage", asset: inner },
+    ]);
+    const pkgPath = await writeFileAt(dir, "ArtPack.unitypackage", outer);
+
+    const { files } = await scanFolder(dir);
+    const tree = files.find((f) => f.fileName === "tree.fbx");
+    // The inner-most file is reached through the recursion, and points back at
+    // the on-disk *outer* archive (not the inner blob's base name).
+    expect(tree).toBeDefined();
+    expect(tree!.fullPath).toBe("Assets/Art/tree.fbx");
+    expect(tree!.nestedPkg).toBe(pkgPath);
+  });
+
+  it("keeps a corrupt package as a lone row instead of aborting the scan", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    await writeFileAt(dir, "good/keep.fbx", Buffer.alloc(4));
+    await writeFileAt(
+      dir,
+      "Broken.unitypackage",
+      Buffer.from("definitely not a gzip tarball"),
+    );
+
+    const { files } = await scanFolder(dir);
+    const byName = Object.fromEntries(files.map((f) => [f.fileName, f]));
+    // The scan completes: the loose file and the package's own row survive...
+    expect(byName["keep.fbx"]).toBeDefined();
+    expect(byName["Broken.unitypackage"]).toBeDefined();
+    // ...but the unreadable archive yields no internal files.
+    expect(files.every((f) => f.nestedPkg === undefined)).toBe(true);
+  });
+
+  it("keeps the package opaque when parsePackages is false", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    const pkg = await buildUnityPackage([{ path: "Assets/SFX/boom.wav" }]);
+    await writeFileAt(dir, "Audio.unitypackage", pkg);
+
+    const { files } = await scanFolder(dir, { parsePackages: false });
+    expect(files).toHaveLength(1);
+    expect(files[0]!.fileName).toBe("Audio.unitypackage");
+    expect(files.some((f) => f.fileName === "boom.wav")).toBe(false);
   });
 });
 
@@ -97,6 +184,26 @@ describe("indexFolder", () => {
 
     const hits = searchFiles(repo.db, "click");
     expect(hits).toHaveLength(1);
+    expect(hits[0]!.productId).toBe(folderProductId(dir));
+    expect(hits[0]!.source).toBe("local");
+  });
+
+  it("makes a file inside a folder's .unitypackage searchable under the folder product", async () => {
+    const { dir, cleanup } = await makeTempDir();
+    cleanups.push(cleanup);
+    const pkg = await buildUnityPackage([
+      { path: "Assets/SFX/Explosion_Big.wav" },
+    ]);
+    await writeFileAt(dir, "Audio.unitypackage", pkg);
+
+    const repo = memoryRepo();
+    const info = await indexFolder(repo, dir, 1);
+    // Two rows: the package itself plus its one internal file.
+    expect(info.fileCount).toBe(2);
+
+    const hits = searchFiles(repo.db, "Explosion");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.fileName).toBe("Explosion_Big.wav");
     expect(hits[0]!.productId).toBe(folderProductId(dir));
     expect(hits[0]!.source).toBe("local");
   });

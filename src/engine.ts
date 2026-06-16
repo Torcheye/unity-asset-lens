@@ -469,7 +469,11 @@ export class AssetLensEngine {
    */
   async addLocalFolder(
     path: string,
-    opts: { now?: number; onProgress?: ProgressReporter } = {},
+    opts: {
+      now?: number;
+      onProgress?: ProgressReporter;
+      parsePackages?: boolean;
+    } = {},
   ): Promise<LocalFolderInfo> {
     // Canonicalise to an absolute path so a relative CLI argument doesn't record
     // a cwd-dependent key (the GUI picker already passes an absolute path). This
@@ -482,7 +486,12 @@ export class AssetLensEngine {
       throw new Error(`No such folder: ${path}`);
     }
     if (!st.isDirectory()) throw new Error(`Not a folder: ${path}`);
-    return indexFolder(this.repo, abs, opts.now ?? Date.now(), opts.onProgress);
+    return indexFolder(this.repo, abs, opts.now ?? Date.now(), {
+      ...(opts.onProgress !== undefined ? { onProgress: opts.onProgress } : {}),
+      ...(opts.parsePackages !== undefined
+        ? { parsePackages: opts.parsePackages }
+        : {}),
+    });
   }
 
   /**
@@ -492,7 +501,11 @@ export class AssetLensEngine {
    */
   async rescanLocalFolder(
     path: string,
-    opts: { now?: number; onProgress?: ProgressReporter } = {},
+    opts: {
+      now?: number;
+      onProgress?: ProgressReporter;
+      parsePackages?: boolean;
+    } = {},
   ): Promise<LocalFolderInfo> {
     const abs = resolve(path);
     const row = this.repo.getLocalFolder(abs);
@@ -502,12 +515,14 @@ export class AssetLensEngine {
       return folderInfoFromRow(this.repo.getLocalFolder(abs)!);
     }
     try {
-      return await indexFolder(
-        this.repo,
-        abs,
-        opts.now ?? Date.now(),
-        opts.onProgress,
-      );
+      return await indexFolder(this.repo, abs, opts.now ?? Date.now(), {
+        ...(opts.onProgress !== undefined
+          ? { onProgress: opts.onProgress }
+          : {}),
+        ...(opts.parsePackages !== undefined
+          ? { parsePackages: opts.parsePackages }
+          : {}),
+      });
     } catch (err) {
       // If the folder vanished mid-scan, indexFolder threw before wiping the
       // existing index — keep & warn rather than failing or destroying it.
@@ -594,11 +609,15 @@ export class AssetLensEngine {
   ): Promise<OsCommand> {
     const file = this.repo.getFile(fileId);
     if (!file) throw new Error(`No file with id ${fileId}`);
-    // A registered-folder file exists on disk at its own `full_path`, so reveal
-    // that exact file. Cache/online products instead reveal the downloaded
-    // `.unitypackage` (the individual asset lives inside the archive, not on disk).
+    // A registered-folder loose file exists on disk at its own `full_path`, so
+    // reveal that exact file. A file expanded from a `.unitypackage` *inside* a
+    // folder has an internal project `full_path` that isn't on disk — its
+    // `nested_pkg` holds the containing archive's absolute path, so reveal that
+    // instead. Cache/online products reveal the product's downloaded package.
     const isFolderFile = isFolderProductId(file.product_id);
-    const target = isFolderFile ? file.full_path : file.local_path;
+    const target = isFolderFile
+      ? file.nested_pkg ?? file.full_path
+      : file.local_path;
     if (!target) {
       throw new Error(
         "This file's product is not downloaded yet — use `download` first.",

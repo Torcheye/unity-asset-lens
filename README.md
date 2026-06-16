@@ -61,7 +61,9 @@ whenever your library changes.
 > **Add local folders (optional).** Have loose assets outside the Asset Store
 > cache — a shared drive, a project export, a freebie folder? Add it from the
 > setup screen: click **Add folder**, pick it in the native dialog, and its files
-> are scanned and folded into the same search (matched by path and name). Each
+> are scanned and folded into the same search (matched by path and name). Any
+> `.unitypackage` sitting in the folder is unpacked too, so you can search the
+> assets *inside* it — revealing such a hit opens the containing package. Each
 > folder shows its file count and total size, with buttons to re-scan (↻) or
 > remove (✕). If a folder's path later goes missing, it's flagged with a warning
 > but its files stay searchable until you remove it.
@@ -182,7 +184,7 @@ The remembered browser session lives alongside the index in the data dir.
 | **Store-page keywords** | One public product-page request per product adds its **category + related keywords** — the strongest signal for keyword matching, and the source of the GUI keyword cloud. |
 | **Local scan** | Streams each `.unitypackage` tar reading only path members; recurses nested `.unitypackage` wrapper blobs (tar-in-tar); incremental by mtime/size. |
 | **Online fetch** | Reconstructs file trees from the public `PreviewAssets` content tree for assets you own but haven't downloaded. |
-| **Local folders** | Scans loose files in folders you add (outside the Asset Store cache) and indexes them by path + name, searched alongside everything else. The web app opens a native folder picker; the CLI takes an explicit path. |
+| **Local folders** | Scans loose files in folders you add (outside the Asset Store cache) and indexes them by path + name, searched alongside everything else. Any `.unitypackage` in the folder is unpacked so its contents are searchable too. The web app opens a native folder picker; the CLI takes an explicit path. |
 | **Index & search** | SQLite **FTS5** index; ranks *filename > path > metadata* with a local-product boost; groups by product; filters by type / publisher / downloaded-only. |
 | **Actions** | Reveal file · open store page · `com.unity3d.kharma:` download deep-link · live cache watcher. |
 
