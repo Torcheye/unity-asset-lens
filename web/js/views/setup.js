@@ -1,6 +1,7 @@
 import { h } from "../dom.js";
 import { MONO, stepColors, badgeStyle } from "../theme.js";
 import { formatInt, formatBytes } from "../format.js";
+import { libraryStatCards } from "./stats.js";
 
 const ACTION_LABELS = {
   signin: { todo: "Sign in", running: "Signing in…", done: "Re-sign in" },
@@ -10,31 +11,6 @@ const ACTION_LABELS = {
 };
 
 const STATUS_LABELS = { todo: "Not started", running: "Running", done: "Done" };
-
-function statTiles(stats) {
-  const s = stats || { products: 0, files: 0, localProducts: 0, onlineProducts: 0 };
-  return [
-    { value: formatInt(s.products), label: "Products owned" },
-    { value: formatInt(s.files), label: "Files indexed" },
-    { value: formatInt(s.localProducts), label: "Local packages" },
-    { value: formatInt(s.onlineProducts), label: "Online-only" },
-  ];
-}
-
-function statGrid(stats) {
-  return h(
-    "div",
-    { style: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "10px", marginTop: "22px" } },
-    ...statTiles(stats).map((t) =>
-      h(
-        "div",
-        { style: { background: "#1c1c21", border: "1px solid #2a2a31", borderRadius: "10px", padding: "13px 15px" } },
-        h("div", { style: { fontSize: "1.375rem", fontWeight: 700, color: "#ededf1", letterSpacing: "-0.5px" } }, t.value),
-        h("div", { style: { fontSize: "0.7188rem", color: "#83838f", marginTop: "2px" } }, t.label),
-      ),
-    ),
-  );
-}
 
 function primaryActionStyle() {
   return {
@@ -378,7 +354,7 @@ export function SetupView(state, actions) {
       { style: { width: "100%" } },
       h("h1", { style: { margin: 0, fontSize: "1.3125rem", fontWeight: 700, letterSpacing: "-0.4px", color: "#f1f1f4" } }, "Set up your library index"),
       h("p", { style: { margin: "7px 0 0", fontSize: "0.8438rem", color: "#86868f", lineHeight: "1.55" } }, "AssetLens builds one searchable index of every file you own across the Unity Asset Store — downloaded or not — and searches paths and metadata together."),
-      statGrid(state.overview?.stats),
+      h("div", { style: { marginTop: "22px" } }, libraryStatCards(state.overview?.stats)),
       h(
         "div",
         { style: { display: "flex", flexDirection: "column", gap: "11px", marginTop: "18px" } },
