@@ -2,81 +2,13 @@ import { h, s } from "../dom.js";
 import { MONO, colorForBucket } from "../theme.js";
 import { bucketIcon } from "../icon.js";
 import { formatInt } from "../format.js";
+import { libraryStatCards } from "./stats.js";
 
 function sectionLabel(text, marginTop) {
   return h(
     "div",
     { style: { fontSize: "0.6875rem", fontWeight: 600, letterSpacing: "0.7px", color: "#6a6a74", margin: marginTop ? `${marginTop} 0 11px` : "0 0 11px" } },
     text,
-  );
-}
-
-const LOCAL_COLOR = "#46d9a0"; // green — downloaded / on disk
-const ONLINE_COLOR = "#7aa2ff"; // blue — owned in catalog, not downloaded
-
-function pct(n, total) {
-  return total ? Math.round((n / total) * 100) : 0;
-}
-
-function filesCard(files) {
-  return h(
-    "div",
-    { style: { background: "#1c1c21", border: "1px solid #2a2a31", borderRadius: "10px", padding: "13px 15px", display: "flex", flexDirection: "column", justifyContent: "center" } },
-    h("div", { style: { fontSize: "1.375rem", fontWeight: 700, color: "#ededf1", letterSpacing: "-0.5px" } }, formatInt(files)),
-    h("div", { style: { fontSize: "0.7188rem", color: "#83838f", marginTop: "2px" } }, "Files indexed"),
-  );
-}
-
-function segmentLabel(seg, total) {
-  return h(
-    "div",
-    { style: { flex: `${seg.count} 1 0`, minWidth: 0, display: "flex", alignItems: "baseline", justifyContent: "center", gap: "6px", overflow: "hidden", whiteSpace: "nowrap" } },
-    h("span", { style: { fontSize: "0.75rem", fontWeight: 600, color: seg.color, overflow: "hidden", textOverflow: "ellipsis" } }, seg.label),
-    h("span", { style: { fontFamily: MONO, fontSize: "0.7188rem", color: "#ededf1", fontWeight: 600 } }, formatInt(seg.count)),
-    h("span", { style: { fontFamily: MONO, fontSize: "0.7188rem", color: "#7a7a85" } }, pct(seg.count, total) + "%"),
-  );
-}
-
-function productsCard(stats) {
-  const s2 = stats || { products: 0, localProducts: 0, onlineProducts: 0 };
-  const total = s2.products;
-  const segs = [
-    { label: "Local", count: s2.localProducts, color: LOCAL_COLOR },
-    { label: "Online-only", count: s2.onlineProducts, color: ONLINE_COLOR },
-  ].filter((seg) => seg.count > 0);
-  return h(
-    "div",
-    { style: { background: "#1c1c21", border: "1px solid #2a2a31", borderRadius: "10px", padding: "14px 16px", display: "flex", alignItems: "center", gap: "18px" } },
-    h(
-      "div",
-      { style: { flexShrink: 0 } },
-      h("div", { style: { fontSize: "1.375rem", fontWeight: 700, color: "#ededf1", letterSpacing: "-0.5px", lineHeight: "1.15" } }, formatInt(total)),
-      h("div", { style: { fontSize: "0.7188rem", color: "#83838f", marginTop: "2px" } }, "Products owned"),
-    ),
-    h(
-      "div",
-      { style: { flex: "1", minWidth: 0 } },
-      h(
-        "div",
-        { style: { display: "flex", gap: "2px", height: "8px", borderRadius: "5px", overflow: "hidden", background: "#232329" } },
-        ...segs.map((seg) => h("div", { style: { flex: `${seg.count} 1 0`, background: seg.color } })),
-      ),
-      h(
-        "div",
-        { style: { display: "flex", gap: "2px", marginTop: "9px" } },
-        ...segs.map((seg) => segmentLabel(seg, total)),
-      ),
-    ),
-  );
-}
-
-function statTiles(stats) {
-  const s2 = stats || { products: 0, files: 0, localProducts: 0, onlineProducts: 0 };
-  return h(
-    "div",
-    { style: { display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.7fr)", gap: "10px" } },
-    filesCard(s2.files),
-    productsCard(s2),
   );
 }
 
@@ -207,7 +139,7 @@ export function OverviewView(state, actions) {
     "div",
     { style: { width: "100%" } },
     sectionLabel("LIBRARY SNAPSHOT"),
-    statTiles(ov.stats),
+    libraryStatCards(ov.stats),
     h(
       "div",
       { style: { display: "flex", alignItems: "center", justifyContent: "space-between", margin: "24px 0 11px" } },
